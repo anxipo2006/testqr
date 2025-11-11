@@ -289,14 +289,53 @@ export const addAttendanceRecord = async (
         const shift = { ...shiftSnap.data(), id: shiftSnap.id } as Shift;
         shiftName = shift.name;
         const now = new Date();
-        const shiftStartTime = getTimeToday(shift.startTime);
-        const shiftEndTime = getTimeToday(shift.endTime);
+        
+        // Use the check-in time for checkout validation, otherwise use current time for check-in
+        const referenceDate = (status === AttendanceStatus.CHECK_OUT && lastRecord) 
+                                ? new Date(lastRecord.timestamp) 
+                                : now;
+
+        const getTimeForReferenceDate = (timeString: string): Date => {
+            const [hours, minutes] = timeString.split(':').map(Number);
+            const date = new Date(referenceDate);
+            date.setHours(hours, minutes, 0, 0);
+            return date;
+        };
+
+        const shiftStartTime = getTimeForReferenceDate(shift.startTime);
+        let shiftEndTime = getTimeForReferenceDate(shift.endTime);
+
+        // Handle overnight shifts by advancing the end time to the next day if necessary
+        if (shiftEndTime <= shiftStartTime) {
+            shiftEndTime.setDate(shiftEndTime.getDate() + 1);
+        }
+
         const gracePeriodMinutes = 5; 
+        const checkInWindowMinutesBefore = 30; // Can check in up to 30 mins before shift starts
         
         if (status === AttendanceStatus.CHECK_IN) {
+            const earliestCheckInTime = new Date(shiftStartTime.getTime() - checkInWindowMinutesBefore * 60000);
+            
+            if (now < earliestCheckInTime) {
+                throw new Error(`Bạn chỉ có thể check-in sớm nhất là ${checkInWindowMinutesBefore} phút trước khi ca bắt đầu.`);
+            }
+            if (now > shiftEndTime) {
+                throw new Error('Ca làm việc của bạn đã kết thúc. Không thể check-in.');
+            }
+            
             const graceTime = new Date(shiftStartTime.getTime() + gracePeriodMinutes * 60000);
             isLate = now > graceTime;
         } else if (status === AttendanceStatus.CHECK_OUT) {
+             const checkOutWindowMinutesAfter = 120; // Can check out up to 2 hours after shift ends
+            const latestCheckOutTime = new Date(shiftEndTime.getTime() + checkOutWindowMinutesAfter * 60000);
+
+            if (now > latestCheckOutTime) {
+                throw new Error('Đã quá muộn để check-out cho ca làm việc này. Vui lòng liên hệ quản trị viên.');
+            }
+            if (now < shiftStartTime) {
+                // This case is unlikely if they already checked in, but good for safety.
+                throw new Error('Bạn không thể check-out trước khi ca làm việc bắt đầu.');
+            }
             isEarly = now < shiftEndTime;
         }
     }

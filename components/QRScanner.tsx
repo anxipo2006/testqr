@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 
@@ -37,7 +38,7 @@ const QRScanner: React.FC<QRScannerProps> = ({ onScanSuccess, onScanError }) => 
       }
     };
 
-    const error = (err: any) => {
+    const error = (_err: any) => {
       // console.warn(err); // can be noisy
     };
 

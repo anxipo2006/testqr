@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import type { Employee, AttendanceRecord } from '../types';
 import { AttendanceStatus } from '../types';
 import { addAttendanceRecord, getLastRecordForEmployee } from '../services/attendanceService';
 import QRScanner from './QRScanner';
-import { CheckCircleIcon, XCircleIcon, QrCodeIcon, LoadingIcon, MapPinIcon } from './icons';
+import { CheckCircleIcon, XCircleIcon, QrCodeIcon, LoadingIcon } from './icons';
 import { formatTimestamp } from '../utils/date';
 
 interface AttendanceScannerProps {

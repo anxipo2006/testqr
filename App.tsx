@@ -1,11 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import type { CurrentUser } from './types';
 import LoginScreen from './components/LoginScreen';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeePortal from './components/EmployeePortal';
 import { LoadingIcon } from './components/icons';
-import { getInitialData } from './services/attendanceService';
 
 
 function App() {

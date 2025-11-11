@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import type { Employee, AttendanceRecord, Shift, Location } from '../types';
+import type { Employee, AttendanceRecord } from '../types';
 import { AttendanceStatus } from '../types';
 import { getRecordsForEmployee, getLastRecordForEmployee, getShifts, getLocations } from '../services/attendanceService';
 import AttendanceScanner from './AttendanceScanner';

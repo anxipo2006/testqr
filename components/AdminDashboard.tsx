@@ -1,15 +1,12 @@
+
 import React, { useState, useEffect } from 'react';
 import { 
-  getEmployees, 
   addEmployee, 
   deleteEmployee, 
   updateEmployee,
-  getAttendanceRecords,
-  getShifts,
   addShift,
   deleteShift,
   updateShift,
-  getLocations,
   addLocation,
   updateLocation,
   deleteLocation,
