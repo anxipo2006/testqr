@@ -5,25 +5,51 @@ import LoginScreen from './components/LoginScreen';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeePortal from './components/EmployeePortal';
 import { LoadingIcon } from './components/icons';
+import { useLocalStorage } from './hooks/useLocalStorage';
+import { login } from './services/attendanceService';
 
 
 function App() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [savedDeviceCode, setSavedDeviceCode] = useLocalStorage<string | null>('employeeDeviceCode', null);
 
-  // This effect now only runs once on mount to check session/initial state.
+  // Kiểm tra mã đã lưu để tự động đăng nhập
   useEffect(() => {
-    // In a real app, you might check for a saved session token here.
-    // For now, we just transition from the loading state.
-    setIsLoading(false);
+    const autoLogin = async () => {
+      // Nếu không có người dùng hiện tại nhưng có mã đã lưu
+      if (!currentUser && savedDeviceCode) {
+        try {
+          const user = await login('employee', { deviceCode: savedDeviceCode });
+          if (user) {
+            setCurrentUser(user);
+          } else {
+            // Mã đã lưu không hợp lệ (ví dụ: nhân viên đã bị xóa)
+            setSavedDeviceCode(null);
+          }
+        } catch (error) {
+          console.error("Auto-login failed:", error);
+          setSavedDeviceCode(null); // Xóa mã không hợp lệ
+        }
+      }
+      setIsLoading(false);
+    };
+
+    autoLogin();
+     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setSavedDeviceCode(null); // Xóa mã đã lưu khi đăng xuất
   };
 
   const handleLogin = (user: CurrentUser) => {
+    // Nếu người dùng đăng nhập là nhân viên, lưu mã của họ
+    if ('deviceCode' in user) {
+        setSavedDeviceCode(user.deviceCode);
+    }
     setCurrentUser(user);
   };
 
