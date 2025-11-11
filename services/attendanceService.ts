@@ -1,8 +1,8 @@
+
 import { db } from './firebaseConfig';
 
 import { AttendanceStatus } from '../types';
 import type { Employee, AttendanceRecord, Shift, CurrentUser, Location } from '../types';
-import { getTimeToday } from '../utils/date';
 
 
 // --- Collection References ---
