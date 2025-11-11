@@ -104,7 +104,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       </div>
        <LoginButton />
        <div className="text-center text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-dashed dark:border-gray-600">
-          <p>TK Admin mặc định: <strong>admin</strong> / <strong>admin123</strong></p>
+          <p>TK Admin mặc định: <strong>trongan</strong> / <strong>trongan123</strong></p>
       </div>
     </form>
   );
