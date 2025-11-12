@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
-import type { Employee, AttendanceRecord } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import type { Employee, AttendanceRecord, Location } from '../types';
 import { AttendanceStatus } from '../types';
-import { addAttendanceRecord, getLastRecordForEmployee } from '../services/attendanceService';
+import { addAttendanceRecord, getLastRecordForEmployee, getLocationById } from '../services/attendanceService';
 import QRScanner from './QRScanner';
-import { CheckCircleIcon, XCircleIcon, QrCodeIcon, LoadingIcon } from './icons';
+import { CheckCircleIcon, XCircleIcon, QrCodeIcon, LoadingIcon, CameraIcon } from './icons';
 import { formatTimestamp } from '../utils/date';
 
 interface AttendanceScannerProps {
@@ -12,7 +12,7 @@ interface AttendanceScannerProps {
   onScanComplete: () => Promise<void>;
 }
 
-type ScanState = 'idle' | 'scanning' | 'processing' | 'success' | 'error';
+type ScanState = 'idle' | 'scanning' | 'capturingSelfie' | 'processing' | 'success' | 'error';
 
 const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanComplete }) => {
   const [scanState, setScanState] = useState<ScanState>('idle');
@@ -21,13 +21,58 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   const [receipt, setReceipt] = useState<AttendanceRecord | null>(null);
   const [nextAction, setNextAction] = useState<AttendanceStatus>(AttendanceStatus.CHECK_IN);
   
+  const [scannedLocation, setScannedLocation] = useState<Location | null>(null);
+  const [selfieData, setSelfieData] = useState<string | null>(null);
+  
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+
   useEffect(() => {
     const determineNextAction = async () => {
       const lastRecord = await getLastRecordForEmployee(employee.id);
       setNextAction(lastRecord?.status === AttendanceStatus.CHECK_IN ? AttendanceStatus.CHECK_OUT : AttendanceStatus.CHECK_IN);
     };
     determineNextAction();
-  }, [employee.id]);
+  }, [employee.id, scanState]); // Re-check on state change in case of completion
+
+  const startCamera = async () => {
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      streamRef.current = stream;
+    } catch (err) {
+      console.error("Error accessing camera:", err);
+      showResult('error', undefined, "Không thể truy cập camera. Vui lòng cấp quyền trong cài đặt trình duyệt.");
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (scanState === 'capturingSelfie' && !selfieData) {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+    
+    // Cleanup on unmount
+    return () => {
+        stopCamera();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanState, selfieData]);
 
 
   const nextActionText = nextAction === AttendanceStatus.CHECK_IN ? 'Check-in' : 'Check-out';
@@ -44,6 +89,8 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
       setScanState('idle');
       setErrorMessage('');
       setReceipt(null);
+      setSelfieData(null);
+      setScannedLocation(null);
     }, 5000); // Show result for 5 seconds
   };
   
@@ -56,47 +103,68 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
         });
     });
   }
+  
+  const processAttendance = async (location: Location, selfie?: string) => {
+     try {
+        setProcessingMessage('Đang lấy vị trí của bạn...');
+        const position = await getCurrentPosition();
+        const coords = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+        };
+        
+        setProcessingMessage(`Đang xác thực ${nextActionText}...`);
+        const newRecord = await addAttendanceRecord(employee.id, nextAction, location.id, coords, selfie);
+
+        await onScanComplete();
+        showResult('success', newRecord);
+
+    } catch (error: any) {
+         // Handle Geolocation errors more specifically
+        if (error.code && typeof error.code === 'number') {
+            switch(error.code) {
+            case 1: // PERMISSION_DENIED
+                showResult('error', undefined, "Bạn đã từ chối quyền truy cập vị trí. Vui lòng cấp quyền trong cài đặt trình duyệt.");
+                break;
+            case 2: // POSITION_UNAVAILABLE
+                showResult('error', undefined, "Không thể xác định vị trí hiện tại. Vui lòng kiểm tra kết nối mạng và GPS.");
+                break;
+            case 3: // TIMEOUT
+                showResult('error', undefined, "Yêu cầu vị trí đã hết hạn. Vui lòng thử lại.");
+                break;
+            default:
+                showResult('error', undefined, `Lỗi vị trí không xác định (Mã: ${error.code}).`);
+                break;
+            }
+        } else {
+            // Handle other errors (e.g., from addAttendanceRecord)
+            showResult('error', undefined, error.message || 'Đã xảy ra lỗi không xác định.');
+        }
+    } finally {
+        setProcessingMessage('');
+    }
+  }
 
   const handleScanSuccess = async (locationId: string) => {
     setScanState('processing');
+    setProcessingMessage('Đang kiểm tra địa điểm...');
     try {
-      setProcessingMessage('Đang lấy vị trí của bạn...');
-      const position = await getCurrentPosition();
-      const coords = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy,
-      };
-      
-      setProcessingMessage(`Đang xác thực ${nextActionText}...`);
-      const newRecord = await addAttendanceRecord(employee.id, nextAction, locationId, coords);
+        const location = await getLocationById(locationId);
+        if (!location) {
+            throw new Error("Mã QR không hợp lệ cho bất kỳ địa điểm nào.");
+        }
+        
+        setScannedLocation(location);
 
-      await onScanComplete();
-      showResult('success', newRecord);
+        if (location.requireSelfie) {
+            setScanState('capturingSelfie');
+        } else {
+            await processAttendance(location);
+        }
 
     } catch (error: any) {
-      // Handle Geolocation errors more specifically
-      if (error.code && typeof error.code === 'number') {
-        switch(error.code) {
-          case 1: // PERMISSION_DENIED
-            showResult('error', undefined, "Bạn đã từ chối quyền truy cập vị trí. Vui lòng cấp quyền trong cài đặt trình duyệt.");
-            break;
-          case 2: // POSITION_UNAVAILABLE
-            showResult('error', undefined, "Không thể xác định vị trí hiện tại. Vui lòng kiểm tra kết nối mạng và GPS.");
-            break;
-          case 3: // TIMEOUT
-            showResult('error', undefined, "Yêu cầu vị trí đã hết hạn. Vui lòng thử lại.");
-            break;
-          default:
-            showResult('error', undefined, `Lỗi vị trí không xác định (Mã: ${error.code}).`);
-            break;
-        }
-      } else {
-        // Handle other errors (e.g., from addAttendanceRecord)
-        showResult('error', undefined, error.message || 'Đã xảy ra lỗi không xác định.');
-      }
-    } finally {
-        setProcessingMessage('');
+        showResult('error', undefined, error.message || 'Lỗi khi xử lý mã QR.');
     }
   };
 
@@ -106,7 +174,41 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   
   const handleCancel = () => {
     setScanState('idle');
+    setSelfieData(null);
+    setScannedLocation(null);
   }
+
+  const handleCaptureSelfie = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext('2d');
+      if (context) {
+        // Flip the image horizontally
+        context.translate(canvas.width, 0);
+        context.scale(-1, 1);
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7); // Compress image
+        setSelfieData(dataUrl);
+        stopCamera();
+      }
+    }
+  }
+
+  const handleRetakeSelfie = () => {
+    setSelfieData(null);
+    // The useEffect will restart the camera
+  }
+  
+  const handleConfirmSelfie = () => {
+    if (scannedLocation && selfieData) {
+        setScanState('processing');
+        processAttendance(scannedLocation, selfieData);
+    }
+  }
+
 
   // Idle State: Show the main button
   if (scanState === 'idle') {
@@ -136,6 +238,44 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
     );
   }
   
+  // Capturing Selfie State
+  if (scanState === 'capturingSelfie') {
+    return (
+        <div className="border border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Xác thực bằng Selfie</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Vui lòng chụp ảnh chân dung của bạn.</p>
+
+            <div className="relative w-full aspect-square bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden mb-4">
+                {selfieData ? (
+                    <img src={selfieData} alt="Selfie preview" className="w-full h-full object-cover" />
+                ) : (
+                    <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover transform scale-x-[-1]"></video>
+                )}
+                <canvas ref={canvasRef} className="hidden"></canvas>
+            </div>
+            
+            {selfieData ? (
+                 <div className="flex items-center gap-4">
+                    <button onClick={handleRetakeSelfie} className="w-full px-4 py-2 bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500">
+                        Chụp lại
+                    </button>
+                     <button onClick={handleConfirmSelfie} className="w-full px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
+                        Xác nhận
+                    </button>
+                </div>
+            ) : (
+                <button onClick={handleCaptureSelfie} className="w-full px-6 py-3 text-lg font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-3">
+                    <CameraIcon className="h-7 w-7"/>
+                    Chụp ảnh
+                </button>
+            )}
+             <button onClick={handleCancel} className="mt-4 w-full text-sm text-gray-600 dark:text-gray-400 hover:underline">
+                Hủy
+            </button>
+        </div>
+    )
+  }
+  
   if (scanState === 'success' && receipt) {
     return (
         <div className="w-full p-4 rounded-lg flex flex-col items-center justify-center text-center transition-all duration-300 bg-green-50 dark:bg-green-900/50 border border-green-200 dark:border-green-700 min-h-[290px]">
@@ -160,6 +300,11 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
                         </a>
                     </div>
                 )}
+                 {receipt.selfieImage && (
+                    <div className="flex justify-center pt-2">
+                        <img src={receipt.selfieImage} alt="Selfie" className="h-20 w-20 rounded-full object-cover border-2 border-white dark:border-gray-600 shadow-md" />
+                    </div>
+                 )}
             </div>
         </div>
     );

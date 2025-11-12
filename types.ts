@@ -4,6 +4,7 @@ export interface Location {
   latitude: number;
   longitude: number;
   radius: number; // in meters
+  requireSelfie?: boolean;
 }
 
 export interface Shift {
@@ -44,4 +45,5 @@ export interface AttendanceRecord {
   latitude?: number;
   longitude?: number;
   accuracy?: number;
+  selfieImage?: string; // Base64 encoded image
 }

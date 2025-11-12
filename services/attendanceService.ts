@@ -42,6 +42,15 @@ export const getLocations = async (): Promise<Location[]> => {
   return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Location));
 };
 
+export const getLocationById = async (locationId: string): Promise<Location | null> => {
+    const docRef = db.collection('locations').doc(locationId);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+        return null;
+    }
+    return { ...doc.data(), id: doc.id } as Location;
+};
+
 export const addLocation = async (location: Omit<Location, 'id'>): Promise<Location> => {
   // FIX: Use v8 compat syntax for adding a document
   const docRef = await locationsCol.add(location);
@@ -245,7 +254,8 @@ export const addAttendanceRecord = async (
   employeeId: string,
   status: AttendanceStatus,
   scannedLocationId: string,
-  coords: { latitude: number; longitude: number; accuracy: number }
+  coords: { latitude: number; longitude: number; accuracy: number },
+  selfieImage?: string
 ): Promise<AttendanceRecord> => {
   // FIX: Use v8 compat syntax for getting a document
   const employeeSnap = await db.collection('employees').doc(employeeId).get();
@@ -269,6 +279,10 @@ export const addAttendanceRecord = async (
   const locationSnap = await db.collection('locations').doc(scannedLocationId).get();
   if (!locationSnap.exists) throw new Error('Địa điểm làm việc không hợp lệ hoặc đã bị xóa.');
   const location = { ...locationSnap.data(), id: locationSnap.id } as Location;
+  
+  if (location.requireSelfie && !selfieImage) {
+    throw new Error('Địa điểm này yêu cầu chụp ảnh selfie để chấm công.');
+  }
   
   const distance = haversineDistance(coords, { latitude: location.latitude, longitude: location.longitude });
   
@@ -341,7 +355,7 @@ export const addAttendanceRecord = async (
     }
   }
 
-  const recordToSave = {
+  const recordToSave: Omit<AttendanceRecord, 'id'> = {
     employeeId,
     employeeName: employee.name,
     username: employee.username,
@@ -353,6 +367,7 @@ export const addAttendanceRecord = async (
     longitude: coords.longitude,
     accuracy: coords.accuracy,
     ...(shiftName && { shiftName }),
+    ...(selfieImage && { selfieImage }),
   };
 
   // FIX: Use v8 compat syntax for adding a document

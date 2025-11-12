@@ -15,7 +15,7 @@ import {
 import type { Employee, AttendanceRecord, Shift, Location } from '../types';
 import { AttendanceStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
-import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, DocumentArrowDownIcon, PencilIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon } from './icons';
+import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, DocumentArrowDownIcon, PencilIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon } from './icons';
 import { formatTimestamp, formatDateForDisplay, getWeekRange, formatTimeToHHMM, calculateHours } from '../utils/date';
 
 type Tab = 'timesheet' | 'logs' | 'employees' | 'shifts' | 'locations' | 'qrcode';
@@ -42,6 +42,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -143,7 +144,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     }
     switch (activeTab) {
       case 'logs':
-        return <AttendanceLog records={records} />;
+        return <AttendanceLog records={records} onViewImage={setViewingImage} />;
       case 'employees':
         return <EmployeeManagement 
                  employees={employees} 
@@ -236,6 +237,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           onSave={handleUpdateLocation}
         />
       )}
+      {viewingImage && (
+        <div 
+            className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+            onClick={() => setViewingImage(null)}
+        >
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+             <img src={viewingImage} alt="Ảnh selfie chấm công" className="max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl" />
+             <button onClick={() => setViewingImage(null)} className="absolute -top-4 -right-4 text-white bg-gray-800 rounded-full p-1">
+                <XCircleIcon className="w-8 h-8"/>
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 };
@@ -256,7 +270,7 @@ const TabButton: React.FC<{icon: React.ReactNode, label: string, isActive: boole
   </li>
 );
 
-const AttendanceLog: React.FC<{records: AttendanceRecord[]}> = ({ records }) => (
+const AttendanceLog: React.FC<{records: AttendanceRecord[], onViewImage: (imageUrl: string) => void}> = ({ records, onViewImage }) => (
   <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
     <h2 className="text-2xl font-bold mb-4 text-gray-800 dark:text-white">Nhật ký Chấm công</h2>
     <div className="overflow-x-auto max-h-[75vh]">
@@ -266,6 +280,7 @@ const AttendanceLog: React.FC<{records: AttendanceRecord[]}> = ({ records }) => 
             <th scope="col" className="px-6 py-3">Tên đăng nhập</th>
             <th scope="col" className="px-6 py-3">Tên nhân viên</th>
             <th scope="col" className="px-6 py-3">Thời gian</th>
+            <th scope="col" className="px-6 py-3">Ảnh Selfie</th>
             <th scope="col" className="px-6 py-3">Ca làm việc</th>
             <th scope="col" className="px-6 py-3">Trạng thái</th>
             <th scope="col" className="px-6 py-3">Vị trí</th>
@@ -278,6 +293,18 @@ const AttendanceLog: React.FC<{records: AttendanceRecord[]}> = ({ records }) => 
               <td className="px-6 py-4 font-mono text-sm text-gray-500 dark:text-gray-400">{record.username}</td>
               <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap dark:text-white">{record.employeeName}</td>
               <td className="px-6 py-4">{formatTimestamp(record.timestamp)}</td>
+              <td className="px-6 py-4">
+                {record.selfieImage ? (
+                  <img 
+                    src={record.selfieImage} 
+                    alt="Selfie" 
+                    className="h-10 w-10 rounded-full object-cover cursor-pointer hover:scale-110 transition-transform"
+                    onClick={() => onViewImage(record.selfieImage!)}
+                  />
+                ) : (
+                  <span className="text-gray-400">-</span>
+                )}
+              </td>
               <td className="px-6 py-4">{record.shiftName || 'Không có'}</td>
               <td className="px-6 py-4">
                 <span className={`px-2 py-1 rounded-full text-xs font-semibold ${record.status === AttendanceStatus.CHECK_IN ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'}`}>
@@ -514,6 +541,7 @@ const LocationManagement: React.FC<{
     const [latitude, setLatitude] = useState<number | ''>('');
     const [longitude, setLongitude] = useState<number | ''>('');
     const [radius, setRadius] = useState<number | ''>(50);
+    const [requireSelfie, setRequireSelfie] = useState(false);
     const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
     const [isFetchingLocation, setIsFetchingLocation] = useState(false);
     
@@ -541,11 +569,12 @@ const LocationManagement: React.FC<{
             setMessage({ type: 'error', text: 'Vui lòng điền đầy đủ thông tin và bán kính phải là số dương.' });
             return;
         }
-        await onAddLocation({ name, latitude, longitude, radius });
+        await onAddLocation({ name, latitude, longitude, radius, requireSelfie });
         setName('');
         setLatitude('');
         setLongitude('');
         setRadius(50);
+        setRequireSelfie(false);
     }
     
     return (
@@ -574,6 +603,10 @@ const LocationManagement: React.FC<{
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bán kính (mét)</label>
                         <input type="number" value={radius} onChange={e => setRadius(parseInt(e.target.value, 10) || '')} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
+                     <div className="sm:col-span-2 flex items-center gap-2 mt-2">
+                        <input id="require-selfie" type="checkbox" checked={requireSelfie} onChange={e => setRequireSelfie(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                        <label htmlFor="require-selfie" className="text-sm font-medium text-gray-700 dark:text-gray-300">Yêu cầu ảnh selfie khi chấm công</label>
+                    </div>
                 </div>
                 <button type="submit" className="mt-4 w-full px-6 py-2 font-semibold text-white bg-primary-600 rounded-md hover:bg-primary-700">Thêm Địa điểm</button>
                 {message && <p className={`text-sm mt-2 text-center ${message.type === 'error' ? 'text-red-500' : 'text-green-500'}`}>{message.text}</p>}
@@ -583,7 +616,10 @@ const LocationManagement: React.FC<{
                     <li key={loc.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md">
                         <div>
                             <p className="font-medium text-gray-800 dark:text-gray-200">{loc.name}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Bán kính: {loc.radius}m</p>
+                            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                               <span>Bán kính: {loc.radius}m</span>
+                               {loc.requireSelfie && <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400"><CameraIcon className="h-4 w-4"/> Selfie</span>}
+                            </div>
                         </div>
                         <div className="flex items-center gap-2">
                             <button onClick={() => onEditLocation(loc)} className="p-2 text-sm font-semibold text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500">
@@ -957,6 +993,7 @@ const EditLocationModal: React.FC<{
   const [latitude, setLatitude] = useState(location.latitude);
   const [longitude, setLongitude] = useState(location.longitude);
   const [radius, setRadius] = useState(location.radius);
+  const [requireSelfie, setRequireSelfie] = useState(location.requireSelfie || false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -964,7 +1001,7 @@ const EditLocationModal: React.FC<{
         // Simple validation
         return;
     }
-    onSave(location.id, { name, latitude, longitude, radius });
+    onSave(location.id, { name, latitude, longitude, radius, requireSelfie });
   };
 
   return (
@@ -993,6 +1030,10 @@ const EditLocationModal: React.FC<{
             <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bán kính (mét)</label>
                 <input type="number" value={radius} onChange={e => setRadius(parseInt(e.target.value, 10))} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="edit-require-selfie" type="checkbox" checked={requireSelfie} onChange={e => setRequireSelfie(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+              <label htmlFor="edit-require-selfie" className="text-sm font-medium text-gray-700 dark:text-gray-300">Yêu cầu ảnh selfie khi chấm công</label>
             </div>
           </div>
           <div className="mt-6 flex justify-end gap-4">
