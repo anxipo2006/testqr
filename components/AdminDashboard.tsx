@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect } from 'react';
 import { 
   addEmployee, 
@@ -15,8 +17,10 @@ import {
 import type { Employee, AttendanceRecord, Shift, Location } from '../types';
 import { AttendanceStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
-import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, DocumentArrowDownIcon, PencilIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon } from './icons';
+import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, DocumentArrowDownIcon, PencilIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon } from './icons';
 import { formatTimestamp, formatDateForDisplay, getWeekRange, formatTimeToHHMM, calculateHours } from '../utils/date';
+
+
 
 type Tab = 'timesheet' | 'logs' | 'employees' | 'shifts' | 'locations' | 'qrcode';
 
@@ -32,13 +36,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [locations, setLocations] = useState<Location[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  const [newEmployeeName, setNewEmployeeName] = useState('');
-  const [newEmployeeUsername, setNewEmployeeUsername] = useState('');
-  const [newEmployeePassword, setNewEmployeePassword] = useState('');
-  const [selectedShiftId, setSelectedShiftId] = useState('');
-  const [selectedLocationId, setSelectedLocationId] = useState('');
-  const [employeeAddError, setEmployeeAddError] = useState('');
-
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
@@ -64,20 +61,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     loadData();
   }, []);
 
-  const handleAddEmployee = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setEmployeeAddError('');
-    try {
-      await addEmployee(newEmployeeName, newEmployeeUsername, newEmployeePassword, selectedShiftId, selectedLocationId);
-      setNewEmployeeName('');
-      setNewEmployeeUsername('');
-      setNewEmployeePassword('');
-      setSelectedShiftId('');
-      setSelectedLocationId('');
+  const handleAddEmployee = async (employeeData: Omit<Employee, 'id' | 'deviceCode'>) => {
+      await addEmployee(employeeData.name, employeeData.username, employeeData.password, employeeData.shiftId || undefined, employeeData.locationId || undefined);
       await loadData();
-    } catch (error: any) {
-      setEmployeeAddError(error.message);
-    }
   };
 
   const handleDeleteEmployee = async (id: string) => {
@@ -93,8 +79,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       setEditingEmployee(null);
       await loadData();
       return { success: true };
-    } catch (error: any) {
-      return { success: false, message: error.message };
+    // FIX: Handle error safely, ensuring a string message is returned.
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "An unknown error occurred.";
+      return { success: false, message };
     }
   };
   
@@ -134,6 +122,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     await loadData();
   }
 
+  const getTabTitle = (tab: Tab): string => {
+    switch (tab) {
+      case 'timesheet': return 'Bảng chấm công';
+      case 'logs': return 'Nhật ký Chấm công';
+      case 'employees': return 'Quản lý Nhân viên';
+      case 'shifts': return 'Quản lý Ca làm việc';
+      case 'locations': return 'Quản lý Địa điểm';
+      case 'qrcode': return 'Mã QR Chấm công';
+      default: return 'Bảng điều khiển';
+    }
+  };
+
   const renderContent = () => {
     if (isLoading) {
         return (
@@ -150,17 +150,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                  employees={employees} 
                  shifts={shifts}
                  locations={locations}
-                 newEmployeeName={newEmployeeName} 
-                 setNewEmployeeName={setNewEmployeeName}
-                 newEmployeeUsername={newEmployeeUsername}
-                 setNewEmployeeUsername={setNewEmployeeUsername}
-                 newEmployeePassword={newEmployeePassword}
-                 setNewEmployeePassword={setNewEmployeePassword}
-                 selectedShiftId={selectedShiftId}
-                 setSelectedShiftId={setSelectedShiftId}
-                 selectedLocationId={selectedLocationId}
-                 setSelectedLocationId={setSelectedLocationId}
-                 employeeAddError={employeeAddError}
                  onAddEmployee={handleAddEmployee}
                  onDeleteEmployee={handleDeleteEmployee} 
                  onEditEmployee={setEditingEmployee}
@@ -210,8 +199,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
             </button>
           </div>
         </nav>
-        <main className="flex-1 p-6 lg:p-10 overflow-auto">
-          {renderContent()}
+        <main className="flex-1 p-6 lg:p-10 flex flex-col overflow-hidden">
+            <div className="flex-shrink-0 flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
+                {getTabTitle(activeTab)}
+                </h2>
+                <button
+                onClick={loadData}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-wait"
+                >
+                {isLoading ? (
+                    <LoadingIcon className="h-5 w-5" />
+                ) : (
+                    <ArrowPathIcon className="h-5 w-5" />
+                )}
+                <span>Tải lại</span>
+                </button>
+            </div>
+            <div className="flex-grow overflow-auto pr-2">
+                {renderContent()}
+            </div>
         </main>
       </div>
       {editingEmployee && (
@@ -271,9 +279,8 @@ const TabButton: React.FC<{icon: React.ReactNode, label: string, isActive: boole
 );
 
 const AttendanceLog: React.FC<{records: AttendanceRecord[], onViewImage: (imageUrl: string) => void}> = ({ records, onViewImage }) => (
-  <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-    <h2 className="text-2xl font-bold mb-4 text-gray-800 dark:text-white">Nhật ký Chấm công</h2>
-    <div className="overflow-x-auto max-h-[75vh]">
+  <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+    <div className="overflow-x-auto">
       <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
         <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400 sticky top-0">
           <tr>
@@ -340,112 +347,94 @@ const EmployeeManagement: React.FC<{
   employees: Employee[],
   shifts: Shift[],
   locations: Location[],
-  newEmployeeName: string,
-  setNewEmployeeName: (name: string) => void,
-  newEmployeeUsername: string,
-  setNewEmployeeUsername: (code: string) => void,
-  newEmployeePassword:  string,
-  setNewEmployeePassword: (password: string) => void,
-  selectedShiftId: string,
-  setSelectedShiftId: (id: string) => void,
-  selectedLocationId: string,
-  setSelectedLocationId: (id: string) => void,
-  employeeAddError: string,
-  onAddEmployee: (e: React.FormEvent) => Promise<void>,
+  onAddEmployee: (employeeData: Omit<Employee, 'id' | 'deviceCode'>) => Promise<void>,
   onDeleteEmployee: (id: string) => Promise<void>,
   onEditEmployee: (employee: Employee) => void,
-}> = ({ employees, shifts, locations, newEmployeeName, setNewEmployeeName, newEmployeeUsername, setNewEmployeeUsername, newEmployeePassword, setNewEmployeePassword, selectedShiftId, setSelectedShiftId, selectedLocationId, setSelectedLocationId, employeeAddError, onAddEmployee, onDeleteEmployee, onEditEmployee }) => {
+}> = ({ employees, shifts, locations, onAddEmployee, onDeleteEmployee, onEditEmployee }) => {
+  const [newEmployeeName, setNewEmployeeName] = useState('');
+  const [newEmployeeUsername, setNewEmployeeUsername] = useState('');
+  const [newEmployeePassword, setNewEmployeePassword] = useState('');
+  const [selectedShiftId, setSelectedShiftId] = useState('');
+  const [selectedLocationId, setSelectedLocationId] = useState('');
+  const [employeeAddError, setEmployeeAddError] = useState('');
+
   const shiftMap = new Map(shifts.map(s => [s.id, s.name]));
   const locationMap = new Map(locations.map(l => [l.id, l.name]));
 
+  const handleAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmployeeAddError('');
+    try {
+      await onAddEmployee({
+        name: newEmployeeName,
+        username: newEmployeeUsername,
+        password: newEmployeePassword,
+        shiftId: selectedShiftId || null,
+        locationId: selectedLocationId || null
+      });
+      setNewEmployeeName('');
+      setNewEmployeeUsername('');
+      setNewEmployeePassword('');
+      setSelectedShiftId('');
+      setSelectedLocationId('');
+    // FIX: Handle error safely by checking if it's an instance of Error.
+    } catch (error) {
+      if (error instanceof Error) {
+        setEmployeeAddError(error.message);
+      } else {
+        setEmployeeAddError('An unknown error occurred.');
+      }
+    }
+  };
+
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-      <h2 className="text-2xl font-bold mb-4 text-gray-800 dark:text-white">Quản lý Nhân viên</h2>
-      <form onSubmit={onAddEmployee} className="mb-6 p-4 border rounded-lg dark:border-gray-700">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div>
-              <label htmlFor="emp-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tên hiển thị</label>
-              <input
-                id="emp-name" type="text" value={newEmployeeName}
-                onChange={(e) => setNewEmployeeName(e.target.value)}
-                placeholder="VD: Nguyễn Văn A" required
-                className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
+    <div className="space-y-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Thêm Nhân viên mới</h3>
+        <form onSubmit={handleAddSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <FormInput id="emp-name" label="Tên hiển thị" value={newEmployeeName} onChange={e => setNewEmployeeName(e.target.value)} placeholder="VD: Nguyễn Văn A" required />
+            <FormInput id="emp-username" label="Tên đăng nhập" value={newEmployeeUsername} onChange={e => setNewEmployeeUsername(e.target.value)} placeholder="VD: nguyenvana" required />
+            <FormInput id="emp-password" label="Mật khẩu" type="password" value={newEmployeePassword} onChange={e => setNewEmployeePassword(e.target.value)} placeholder="••••••••" required />
+            
+            <FormSelect id="shift-select" label="Ca làm việc" value={selectedShiftId} onChange={e => setSelectedShiftId(e.target.value)}>
+              <option value="">Không phân ca</option>
+              {shifts.map(shift => <option key={shift.id} value={shift.id}>{shift.name} ({shift.startTime} - {shift.endTime})</option>)}
+            </FormSelect>
+            
+            <FormSelect id="location-select" label="Địa điểm" value={selectedLocationId} onChange={e => setSelectedLocationId(e.target.value)}>
+              <option value="">Không có</option>
+              {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+            </FormSelect>
           </div>
-          <div>
-              <label htmlFor="emp-username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tên đăng nhập</label>
-              <input
-                id="emp-username" type="text" value={newEmployeeUsername}
-                onChange={(e) => setNewEmployeeUsername(e.target.value)}
-                placeholder="VD: nguyenvana" required
-                className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
-          </div>
-          <div>
-              <label htmlFor="emp-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mật khẩu</label>
-              <input
-                id="emp-password" type="password"
-                value={newEmployeePassword}
-                onChange={(e) => setNewEmployeePassword(e.target.value)}
-                placeholder="••••••••" required
-                className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
-          </div>
-           <div>
-                <label htmlFor="shift-select" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ca làm việc</label>
-                <select 
-                    id="shift-select" value={selectedShiftId}
-                    onChange={(e) => setSelectedShiftId(e.target.value)}
-                    className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                    <option value="">Không phân ca</option>
-                    {shifts.map(shift => (
-                        <option key={shift.id} value={shift.id}>
-                            {shift.name} ({shift.startTime} - {shift.endTime})
-                        </option>
-                    ))}
-                </select>
-           </div>
-            <div>
-                <label htmlFor="location-select" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Địa điểm</label>
-                <select 
-                    id="location-select" value={selectedLocationId}
-                    onChange={(e) => setSelectedLocationId(e.target.value)}
-                    className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                    <option value="">Không có</option>
-                    {locations.map(loc => (
-                        <option key={loc.id} value={loc.id}>{loc.name}</option>
-                    ))}
-                </select>
-           </div>
-        </div>
-        <button type="submit" className="mt-4 w-full px-6 py-2 font-semibold text-white bg-primary-600 rounded-md hover:bg-primary-700">Thêm nhân viên</button>
-        {employeeAddError && <p className="text-red-500 text-sm mt-2">{employeeAddError}</p>}
-      </form>
-      <ul className="space-y-3 max-h-[50vh] overflow-y-auto">
+          <button type="submit" className="mt-4 w-full sm:w-auto px-6 py-2 font-semibold text-white bg-primary-600 rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">Thêm nhân viên</button>
+          {employeeAddError && <p className="text-red-500 text-sm mt-2">{employeeAddError}</p>}
+        </form>
+      </div>
+
+      <div className="space-y-4">
         {employees.map(employee => (
-          <li key={employee.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md">
+          <div key={employee.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex-grow">
-               <p className="font-medium text-gray-800 dark:text-gray-200">{employee.name}</p>
-               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-4 flex-wrap">
-                  <span>Tài khoản: <strong className="font-mono">{employee.username}</strong></span>
-                  <span>Mã: <strong className="font-mono bg-gray-200 dark:bg-gray-600 px-1 rounded">{employee.deviceCode}</strong></span>
-                  <span>Ca: {employee.shiftId && shiftMap.has(employee.shiftId) ? shiftMap.get(employee.shiftId) : 'Chưa phân'}</span>
-                  <span>Địa điểm: {employee.locationId && locationMap.has(employee.locationId) ? locationMap.get(employee.locationId) : 'Chưa phân'}</span>
+               <p className="font-bold text-lg text-gray-900 dark:text-white">{employee.name}</p>
+               <p className="font-mono text-sm text-primary-600 dark:text-primary-400">{employee.username}</p>
+               <div className="mt-2 text-sm text-gray-600 dark:text-gray-400 grid grid-cols-2 gap-x-4 gap-y-1">
+                  <div className="flex items-center gap-2"><strong>Mã:</strong> <span className="font-mono bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded text-xs">{employee.deviceCode}</span></div>
+                  <div className="flex items-center gap-2 truncate"><strong>Ca:</strong> <span className="truncate">{employee.shiftId && shiftMap.has(employee.shiftId) ? shiftMap.get(employee.shiftId) : 'Chưa phân'}</span></div>
+                  <div className="flex items-center gap-2 truncate col-span-2"><strong>Địa điểm:</strong> <span className="truncate">{employee.locationId && locationMap.has(employee.locationId) ? locationMap.get(employee.locationId) : 'Chưa phân'}</span></div>
                </div>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                <button onClick={() => onEditEmployee(employee)} className="p-2 text-sm font-semibold text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500">
-                    <PencilIcon className="h-4 w-4" />
+            <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-center">
+                <button onClick={() => onEditEmployee(employee)} className="p-2 text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 transition-colors">
+                    <PencilIcon className="h-5 w-5" />
                 </button>
-                <button onClick={() => onDeleteEmployee(employee.id)} className="p-2 text-sm font-semibold text-white bg-red-600 rounded-md hover:bg-red-700">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                <button onClick={() => onDeleteEmployee(employee.id)} className="p-2 text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors">
+                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                 </button>
             </div>
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
      {employees.length === 0 && <p className="text-center py-8 text-gray-500">Chưa có nhân viên nào.</p>}
     </div>
   );
@@ -470,62 +459,49 @@ const ShiftManagement: React.FC<{
       setName('');
       setStartTime('');
       setEndTime('');
-    } catch (err: any) {
-      setError(err.message);
+    // FIX: Handle error safely by checking if it's an instance of Error.
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unknown error occurred.');
+      }
     }
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-      <h2 className="text-2xl font-bold mb-4 text-gray-800 dark:text-white">Quản lý Ca làm việc</h2>
-      <form onSubmit={handleSubmit} className="mb-6 p-4 border rounded-lg dark:border-gray-700">
-         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Tên ca (VD: Ca Sáng)" required
-              className="px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 sm:col-span-3"
-            />
-            <div>
-                <label className="text-sm text-gray-500 dark:text-gray-400 mb-1 block">Giờ bắt đầu</label>
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)} required
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                />
+    <div className="space-y-6">
+       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Thêm Ca làm việc mới</h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-3">
+                <FormInput id="shift-name" label="Tên ca" value={name} onChange={e => setName(e.target.value)} placeholder="VD: Ca Sáng" required />
             </div>
-             <div>
-                <label className="text-sm text-gray-500 dark:text-gray-400 mb-1 block">Giờ kết thúc</label>
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)} required
-                  className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                />
-            </div>
-            <button type="submit" className="self-end px-6 py-2 font-semibold text-white bg-primary-600 rounded-md hover:bg-primary-700">Thêm ca</button>
+            <FormInput id="start-time" label="Giờ bắt đầu" type="time" value={startTime} onChange={e => setStartTime(e.target.value)} required />
+            <FormInput id="end-time" label="Giờ kết thúc" type="time" value={endTime} onChange={e => setEndTime(e.target.value)} required />
           </div>
+          <button type="submit" className="mt-4 px-6 py-2 font-semibold text-white bg-primary-600 rounded-md hover:bg-primary-700">Thêm ca</button>
           {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
-      </form>
-       <ul className="space-y-3 max-h-[60vh] overflow-y-auto">
+        </form>
+      </div>
+       <div className="space-y-3">
         {shifts.map(shift => (
-          <li key={shift.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md">
+          <div key={shift.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center justify-between">
             <span className="font-medium text-gray-800 dark:text-gray-200">
-              {shift.name} ({shift.startTime} - {shift.endTime})
+              {shift.name} <span className="text-gray-500 dark:text-gray-400 font-normal">({shift.startTime} - {shift.endTime})</span>
             </span>
             <div className="flex items-center gap-2">
-                <button onClick={() => onEditShift(shift)} className="p-2 text-sm font-semibold text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500">
-                    <PencilIcon className="h-4 w-4" />
+                <button onClick={() => onEditShift(shift)} className="p-2 text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500">
+                    <PencilIcon className="h-5 w-5" />
                 </button>
-                <button onClick={() => onDeleteShift(shift.id)} className="p-2 text-sm font-semibold text-white bg-red-600 rounded-md hover:bg-red-700">
-                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                <button onClick={() => onDeleteShift(shift.id)} className="p-2 text-white bg-red-600 rounded-md hover:bg-red-700">
+                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                 </button>
             </div>
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
       {shifts.length === 0 && <p className="text-center py-8 text-gray-500">Chưa có ca làm việc nào.</p>}
     </div>
   );
@@ -578,60 +554,52 @@ const LocationManagement: React.FC<{
     }
     
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="text-2xl font-bold mb-4 text-gray-800 dark:text-white">Quản lý Địa điểm</h2>
-            <form onSubmit={handleSubmit} className="mb-6 p-4 border rounded-lg dark:border-gray-700">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="sm:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tên địa điểm</label>
-                        <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="VD: Văn phòng chính" required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+        <div className="space-y-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Thêm Địa điểm mới</h3>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="sm:col-span-2">
+                            <FormInput id="loc-name" label="Tên địa điểm" value={name} onChange={e => setName(e.target.value)} placeholder="VD: Văn phòng chính" required />
+                        </div>
+                        <FormInput id="loc-lat" label="Vĩ độ (Latitude)" type="number" step="any" value={latitude} onChange={e => setLatitude(parseFloat(e.target.value) || '')} required />
+                        <FormInput id="loc-lon" label="Kinh độ (Longitude)" type="number" step="any" value={longitude} onChange={e => setLongitude(parseFloat(e.target.value) || '')} required />
+                        <div className="sm:col-span-2">
+                            <button type="button" onClick={handleGetCurrentLocation} disabled={isFetchingLocation} className="text-sm font-medium text-primary-600 hover:underline disabled:text-gray-400 disabled:cursor-wait">
+                                {isFetchingLocation ? 'Đang lấy vị trí...' : 'Lấy vị trí hiện tại'}
+                            </button>
+                        </div>
+                        <FormInput id="loc-radius" label="Bán kính (mét)" type="number" value={radius} onChange={e => setRadius(parseInt(e.target.value, 10) || '')} required />
+                        <div className="sm:col-span-2 flex items-center gap-2 pt-2">
+                            <input id="require-selfie" type="checkbox" checked={requireSelfie} onChange={e => setRequireSelfie(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                            <label htmlFor="require-selfie" className="text-sm font-medium text-gray-700 dark:text-gray-300">Yêu cầu ảnh selfie khi chấm công</label>
+                        </div>
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vĩ độ (Latitude)</label>
-                        <input type="number" step="any" value={latitude} onChange={e => setLatitude(parseFloat(e.target.value) || '')} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kinh độ (Longitude)</label>
-                        <input type="number" step="any" value={longitude} onChange={e => setLongitude(parseFloat(e.target.value) || '')} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-                    </div>
-                    <div className="sm:col-span-2">
-                        <button type="button" onClick={handleGetCurrentLocation} disabled={isFetchingLocation} className="text-sm text-primary-600 hover:underline disabled:text-gray-400 disabled:cursor-wait">
-                            {isFetchingLocation ? 'Đang lấy vị trí...' : 'Lấy vị trí hiện tại'}
-                        </button>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bán kính (mét)</label>
-                        <input type="number" value={radius} onChange={e => setRadius(parseInt(e.target.value, 10) || '')} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-                    </div>
-                     <div className="sm:col-span-2 flex items-center gap-2 mt-2">
-                        <input id="require-selfie" type="checkbox" checked={requireSelfie} onChange={e => setRequireSelfie(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-                        <label htmlFor="require-selfie" className="text-sm font-medium text-gray-700 dark:text-gray-300">Yêu cầu ảnh selfie khi chấm công</label>
-                    </div>
-                </div>
-                <button type="submit" className="mt-4 w-full px-6 py-2 font-semibold text-white bg-primary-600 rounded-md hover:bg-primary-700">Thêm Địa điểm</button>
-                {message && <p className={`text-sm mt-2 text-center ${message.type === 'error' ? 'text-red-500' : 'text-green-500'}`}>{message.text}</p>}
-            </form>
-            <ul className="space-y-3 max-h-[50vh] overflow-y-auto">
+                    <button type="submit" className="mt-4 px-6 py-2 font-semibold text-white bg-primary-600 rounded-md hover:bg-primary-700">Thêm Địa điểm</button>
+                    {message && <p className={`text-sm mt-2 text-center ${message.type === 'error' ? 'text-red-500' : 'text-green-500'}`}>{message.text}</p>}
+                </form>
+            </div>
+            <div className="space-y-3">
                 {locations.map(loc => (
-                    <li key={loc.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md">
+                    <div key={loc.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center justify-between">
                         <div>
                             <p className="font-medium text-gray-800 dark:text-gray-200">{loc.name}</p>
-                            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                            <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 mt-1">
                                <span>Bán kính: {loc.radius}m</span>
-                               {loc.requireSelfie && <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400"><CameraIcon className="h-4 w-4"/> Selfie</span>}
+                               {loc.requireSelfie && <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400"><CameraIcon className="h-4 w-4"/> Yêu cầu Selfie</span>}
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            <button onClick={() => onEditLocation(loc)} className="p-2 text-sm font-semibold text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500">
-                                <PencilIcon className="h-4 w-4" />
+                            <button onClick={() => onEditLocation(loc)} className="p-2 text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500">
+                                <PencilIcon className="h-5 w-5" />
                             </button>
-                            <button onClick={() => onDeleteLocation(loc.id)} className="p-2 text-sm font-semibold text-white bg-red-600 rounded-md hover:bg-red-700">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                            <button onClick={() => onDeleteLocation(loc.id)} className="p-2 text-white bg-red-600 rounded-md hover:bg-red-700">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                             </button>
                         </div>
-                    </li>
+                    </div>
                 ))}
-            </ul>
+            </div>
              {locations.length === 0 && <p className="text-center py-8 text-gray-500">Chưa có địa điểm nào được cấu hình.</p>}
         </div>
     );
@@ -767,7 +735,6 @@ const AttendanceTimesheet: React.FC<{ employees: Employee[], records: Attendance
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
       <div className="flex justify-between items-center mb-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Bảng Chấm Công Tuần</h2>
           <div className="flex items-center gap-4 text-gray-500 dark:text-gray-400">
              <button onClick={handlePrevWeek} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">{'<'}</button>
              <span>{formatDateForDisplay(weekStart)} - {formatDateForDisplay(getWeekRange(currentDate).weekEnd)}</span>
@@ -775,68 +742,45 @@ const AttendanceTimesheet: React.FC<{ employees: Employee[], records: Attendance
           </div>
         </div>
         <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700">
-            <DocumentArrowDownIcon className="h-5 w-5"/>
-            <span>Xuất báo cáo</span>
+<DocumentArrowDownIcon className="h-5 w-5" />
+          <span>Xuất CSV</span>
         </button>
       </div>
-
       <div className="overflow-x-auto">
         <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400 border-collapse">
           <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
             <tr>
-              <th scope="col" className="px-4 py-3 border border-gray-200 dark:border-gray-600 w-1/5 sticky left-0 bg-gray-50 dark:bg-gray-700 z-10">Nhân viên</th>
-              {weekDays.map((day, i) => {
-                const isToday = day.getTime() === today.getTime();
-                return (
-                  <th key={i} scope="col" className={`px-4 py-3 border border-gray-200 dark:border-gray-600 text-center ${isToday ? 'bg-primary-100 dark:bg-primary-900/50' : ''}`}>
-                    {dayLabels[i]}<br/>{formatDateForDisplay(day)}
-                  </th>
-                )
-              })}
-              <th scope="col" className="px-4 py-3 border border-gray-200 dark:border-gray-600 text-center">Tổng giờ</th>
+              <th scope="col" className="px-4 py-3 sticky left-0 bg-gray-50 dark:bg-gray-700 min-w-[200px]">Nhân viên</th>
+              {weekDays.map((day, i) => (
+                <th key={i} scope="col" className={`px-4 py-3 text-center min-w-[150px] ${day.getTime() === today.getTime() ? 'bg-primary-100 dark:bg-primary-900/50' : ''}`}>
+                  <div>{dayLabels[i]}</div>
+                  <div className="font-normal">{formatDateForDisplay(day)}</div>
+                </th>
+              ))}
+              <th scope="col" className="px-4 py-3 text-right">Tổng giờ</th>
             </tr>
           </thead>
           <tbody>
-            {employees.map(employee => {
-              const data = processedData.get(employee.id);
-              if (!data) return null;
-
-              return (
-                <tr key={employee.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-600">
-                  <td className="px-4 py-2 font-medium text-gray-900 whitespace-nowrap dark:text-white border border-gray-200 dark:border-gray-600 sticky left-0 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-600">{employee.name}</td>
-                  {data.dailyData.map((day, i) => {
-                     const dayDate = weekDays[i];
-                     const isToday = dayDate.getTime() === today.getTime();
-                     return (
-                        <td key={i} className={`px-4 py-2 border border-gray-200 dark:border-gray-600 text-center ${isToday ? 'bg-primary-50 dark:bg-primary-900/30' : ''}`}>
-                          {day.checkIn ? (
-                            <div className="flex flex-col items-center justify-center">
-                                <div className="flex items-center gap-1" title={day.isLate ? 'Đi trễ' : undefined}>
-                                    <span className={`font-semibold ${day.isLate ? 'text-red-500' : ''}`}>{formatTimeToHHMM(day.checkIn)}</span>
-                                    {day.isLate && <ClockIcon className="h-3.5 w-3.5 text-red-500" />}
-                                </div>
-                                {day.checkOut ? (
-                                    <>
-                                        <div className="flex items-center gap-1" title={day.isEarly ? 'Về sớm' : undefined}>
-                                            <span className={`font-semibold ${day.isEarly ? 'text-yellow-600 dark:text-yellow-400' : ''}`}>- {formatTimeToHHMM(day.checkOut)}</span>
-                                            {day.isEarly && <ClockIcon className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400" />}
-                                        </div>
-                                        <span className="text-xs text-gray-500 mt-1">{day.hours} giờ</span>
-                                    </>
-                                ) : (
-                                    <span className="font-semibold text-yellow-600 dark:text-yellow-400">- ...</span>
-                                )}
-                            </div>
-                            ) : (
-                                <span>-</span>
-                            )}
-                        </td>
-                     )
-                  })}
-                  <td className="px-4 py-2 border border-gray-200 dark:border-gray-600 text-center font-bold text-primary-600 dark:text-primary-400">{data.totalHours}</td>
-                </tr>
-              )
-            })}
+            {Array.from(processedData.entries()).map(([employeeId, data]) => (
+              <tr key={employeeId} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                <td className="px-4 py-4 font-medium text-gray-900 whitespace-nowrap dark:text-white sticky left-0 bg-white dark:bg-gray-800 group-hover:bg-gray-50 dark:group-hover:bg-gray-600">{data.employeeName}</td>
+                {data.dailyData.map((day, i) => (
+                  <td key={i} className={`px-4 py-4 text-center ${weekDays[i].getTime() === today.getTime() ? 'bg-primary-50 dark:bg-primary-900/20' : ''}`}>
+                    {day.checkIn && day.checkOut ? (
+                      <div>
+                        <span>{formatTimeToHHMM(day.checkIn)} - {formatTimeToHHMM(day.checkOut)}</span>
+                        <div className="text-xs text-gray-500">({day.hours}h)</div>
+                         {day.isLate && <div className="text-xs text-red-500">Đi trễ</div>}
+                         {day.isEarly && <div className="text-xs text-yellow-500">Về sớm</div>}
+                      </div>
+                    ) : day.checkIn ? (
+                       <span>{formatTimeToHHMM(day.checkIn)} - ?</span>
+                    ) : '-'}
+                  </td>
+                ))}
+                <td className="px-4 py-4 font-bold text-right text-gray-800 dark:text-gray-200">{data.totalHours}h</td>
+              </tr>
+            ))}
           </tbody>
         </table>
         {employees.length === 0 && <p className="text-center py-8 text-gray-500">Chưa có nhân viên nào để hiển thị.</p>}
@@ -845,7 +789,7 @@ const AttendanceTimesheet: React.FC<{ employees: Employee[], records: Attendance
   );
 };
 
-// Modal for editing an employee
+
 const EditEmployeeModal: React.FC<{
   employee: Employee;
   shifts: Shift[];
@@ -859,74 +803,51 @@ const EditEmployeeModal: React.FC<{
   const [shiftId, setShiftId] = useState(employee.shiftId || '');
   const [locationId, setLocationId] = useState(employee.locationId || '');
   const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSaving(true);
     setError('');
 
-    const updates: Partial<Employee> = {
-      name: name.trim(),
-      username: username.trim(),
-      shiftId: shiftId || undefined,
-      locationId: locationId || undefined,
-    };
-
-    if (password) {
-      updates.password = password;
-    }
-
+    const updates: Partial<Employee> = {};
+    if (name !== employee.name) updates.name = name;
+    if (username !== employee.username) updates.username = username;
+    if (password) updates.password = password;
+    updates.shiftId = shiftId || null;
+    updates.locationId = locationId || null;
+    
     const result = await onSave(employee.id, updates);
     if (!result.success) {
-      setError(result.message || 'Đã xảy ra lỗi không xác định.');
+        setError(result.message || 'Lỗi không xác định.');
     }
+    
+    setIsSaving(false);
+    if(result.success) onClose();
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg p-6 flex flex-col">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Chỉnh sửa Nhân viên</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-            <XCircleIcon className="w-8 h-8"/>
-          </button>
-        </div>
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tên hiển thị</label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tên đăng nhập</label>
-              <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mật khẩu mới (để trống nếu không đổi)</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ca làm việc</label>
-              <select value={shiftId} onChange={e => setShiftId(e.target.value)} className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                <option value="">Không phân ca</option>
-                {shifts.map(shift => (
-                  <option key={shift.id} value={shift.id}>{shift.name} ({shift.startTime} - {shift.endTime})</option>
-                ))}
-              </select>
-            </div>
-             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Địa điểm</label>
-              <select value={locationId} onChange={e => setLocationId(e.target.value)} className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                <option value="">Không có</option>
-                {locations.map(loc => (
-                  <option key={loc.id} value={loc.id}>{loc.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
-          <div className="mt-6 flex justify-end gap-4">
-            <button type="button" onClick={onClose} className="px-6 py-2 rounded-lg bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500 font-semibold">Hủy</button>
-            <button type="submit" className="px-8 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 font-semibold">Lưu thay đổi</button>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold mb-4">Chỉnh sửa Nhân viên</h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <FormInput label="Tên hiển thị" value={name} onChange={e => setName(e.target.value)} required />
+          <FormInput label="Tên đăng nhập" value={username} onChange={e => setUsername(e.target.value)} required />
+          <FormInput label="Mật khẩu mới" type="password" onChange={e => setPassword(e.target.value)} placeholder="Để trống nếu không đổi" />
+          <FormSelect label="Ca làm việc" value={shiftId} onChange={e => setShiftId(e.target.value)}>
+            <option value="">Không phân ca</option>
+            {shifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </FormSelect>
+          <FormSelect label="Địa điểm" value={locationId} onChange={e => setLocationId(e.target.value)}>
+            <option value="">Không có địa điểm</option>
+            {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </FormSelect>
+           {error && <p className="text-red-500 text-sm">{error}</p>}
+          <div className="flex justify-end gap-2 pt-4">
+            <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-md text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Hủy</button>
+            <button type="submit" disabled={isSaving} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:bg-primary-400">
+                {isSaving ? 'Đang lưu...' : 'Lưu'}
+            </button>
           </div>
         </form>
       </div>
@@ -934,117 +855,110 @@ const EditEmployeeModal: React.FC<{
   );
 };
 
-// Modal for editing a shift
 const EditShiftModal: React.FC<{
   shift: Shift;
   onClose: () => void;
   onSave: (id: string, updates: Partial<Shift>) => Promise<void>;
 }> = ({ shift, onClose, onSave }) => {
-  const [name, setName] = useState(shift.name);
-  const [startTime, setStartTime] = useState(shift.startTime);
-  const [endTime, setEndTime] = useState(shift.endTime);
+    const [name, setName] = useState(shift.name);
+    const [startTime, setStartTime] = useState(shift.startTime);
+    const [endTime, setEndTime] = useState(shift.endTime);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSave(shift.id, { name, startTime, endTime });
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg p-6 flex flex-col">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Chỉnh sửa Ca làm việc</h2>
-           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-            <XCircleIcon className="w-8 h-8"/>
-          </button>
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const updates: Partial<Shift> = {};
+        if (name !== shift.name) updates.name = name;
+        if (startTime !== shift.startTime) updates.startTime = startTime;
+        if (endTime !== shift.endTime) updates.endTime = endTime;
+        await onSave(shift.id, updates);
+    }
+    
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
+                <h3 className="text-lg font-bold mb-4">Chỉnh sửa Ca làm việc</h3>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <FormInput label="Tên ca" value={name} onChange={e => setName(e.target.value)} required />
+                    <FormInput label="Giờ bắt đầu" type="time" value={startTime} onChange={e => setStartTime(e.target.value)} required />
+                    <FormInput label="Giờ kết thúc" type="time" value={endTime} onChange={e => setEndTime(e.target.value)} required />
+                    <div className="flex justify-end gap-2 pt-4">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-md text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Hủy</button>
+                        <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">Lưu</button>
+                    </div>
+                </form>
+            </div>
         </div>
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tên ca</label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Giờ bắt đầu</label>
-              <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Giờ kết thúc</label>
-              <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-          </div>
-          <div className="mt-6 flex justify-end gap-4">
-            <button type="button" onClick={onClose} className="px-6 py-2 rounded-lg bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500 font-semibold">Hủy</button>
-            <button type="submit" className="px-8 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 font-semibold">Lưu thay đổi</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
+    );
+}
 
-// Modal for editing a location
 const EditLocationModal: React.FC<{
   location: Location;
   onClose: () => void;
   onSave: (id: string, updates: Partial<Location>) => Promise<void>;
 }> = ({ location, onClose, onSave }) => {
-  const [name, setName] = useState(location.name);
-  const [latitude, setLatitude] = useState(location.latitude);
-  const [longitude, setLongitude] = useState(location.longitude);
-  const [radius, setRadius] = useState(location.radius);
-  const [requireSelfie, setRequireSelfie] = useState(location.requireSelfie || false);
+    const [name, setName] = useState(location.name);
+    const [latitude, setLatitude] = useState(location.latitude);
+    const [longitude, setLongitude] = useState(location.longitude);
+    const [radius, setRadius] = useState(location.radius);
+    const [requireSelfie, setRequireSelfie] = useState(location.requireSelfie || false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (name.trim() === '' || radius <= 0) {
-        // Simple validation
-        return;
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const updates: Partial<Location> = {};
+        if (name !== location.name) updates.name = name;
+        if (latitude !== location.latitude) updates.latitude = latitude;
+        if (longitude !== location.longitude) updates.longitude = longitude;
+        if (radius !== location.radius) updates.radius = radius;
+        if(requireSelfie !== location.requireSelfie) updates.requireSelfie = requireSelfie;
+        await onSave(location.id, updates);
     }
-    onSave(location.id, { name, latitude, longitude, radius, requireSelfie });
-  };
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg p-6 flex flex-col">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Chỉnh sửa Địa điểm</h2>
-           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-            <XCircleIcon className="w-8 h-8"/>
-          </button>
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
+                <h3 className="text-lg font-bold mb-4">Chỉnh sửa Địa điểm</h3>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <FormInput label="Tên địa điểm" value={name} onChange={e => setName(e.target.value)} required />
+                    <FormInput label="Vĩ độ" type="number" step="any" value={latitude} onChange={e => setLatitude(parseFloat(e.target.value))} required />
+                    <FormInput label="Kinh độ" type="number" step="any" value={longitude} onChange={e => setLongitude(parseFloat(e.target.value))} required />
+                    <FormInput label="Bán kính (mét)" type="number" value={radius} onChange={e => setRadius(parseInt(e.target.value, 10))} required />
+                    <div className="flex items-center gap-2">
+                        <input id="edit-require-selfie" type="checkbox" checked={requireSelfie} onChange={e => setRequireSelfie(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                        <label htmlFor="edit-require-selfie" className="text-sm font-medium text-gray-700 dark:text-gray-300">Yêu cầu ảnh selfie</label>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-4">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-md text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Hủy</button>
+                        <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">Lưu</button>
+                    </div>
+                </form>
+            </div>
         </div>
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tên địa điểm</label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-            <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vĩ độ</label>
-                <input type="number" step="any" value={latitude} onChange={e => setLatitude(parseFloat(e.target.value))} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-             <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kinh độ</label>
-                <input type="number" step="any" value={longitude} onChange={e => setLongitude(parseFloat(e.target.value))} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-            <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bán kính (mét)</label>
-                <input type="number" value={radius} onChange={e => setRadius(parseInt(e.target.value, 10))} required className="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-            </div>
-            <div className="flex items-center gap-2">
-              <input id="edit-require-selfie" type="checkbox" checked={requireSelfie} onChange={e => setRequireSelfie(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-              <label htmlFor="edit-require-selfie" className="text-sm font-medium text-gray-700 dark:text-gray-300">Yêu cầu ảnh selfie khi chấm công</label>
-            </div>
-          </div>
-          <div className="mt-6 flex justify-end gap-4">
-            <button type="button" onClick={onClose} className="px-6 py-2 rounded-lg bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500 font-semibold">Hủy</button>
-            <button type="submit" className="px-8 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 font-semibold">Lưu thay đổi</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
+    );
 };
 
+// --- Reusable Form Components ---
+const FormInput: React.FC<React.InputHTMLAttributes<HTMLInputElement> & { label: string }> = ({ label, id, ...props }) => (
+  <div>
+    <label htmlFor={id} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
+    <input
+      id={id}
+      {...props}
+      className="w-full px-4 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+    />
+  </div>
+);
+
+const FormSelect: React.FC<React.SelectHTMLAttributes<HTMLSelectElement> & { label: string }> = ({ label, id, children, ...props }) => (
+  <div>
+    <label htmlFor={id} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
+    <select
+      id={id}
+      {...props}
+      className="w-full px-4 py-2 border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+    >
+      {children}
+    </select>
+  </div>
+);
 
 export default AdminDashboard;
