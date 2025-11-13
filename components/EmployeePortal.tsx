@@ -27,7 +27,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout, imp
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>('week');
- 
+  const [currentDate, setCurrentDate] = useState(new Date());
 
   const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
 
