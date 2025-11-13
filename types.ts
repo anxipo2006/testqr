@@ -14,6 +14,12 @@ export interface Shift {
   endTime: string;   // "HH:mm"
 }
 
+export interface JobTitle {
+  id: string;
+  name: string;
+  hourlyRate: number; // VND per hour
+}
+
 export interface Employee {
   id: string;
   username: string; // Unique login identifier
@@ -22,6 +28,7 @@ export interface Employee {
   deviceCode: string; // 5-character unique device/account identifier
   shiftId?: string | null; // Optional link to a Shift, allow null for "no shift"
   locationId?: string | null; // Optional link to a Location, allow null for "no location"
+  jobTitleId?: string | null; // Optional link to a JobTitle
 }
 
 // FIX: Add CurrentUser type definition here to be shared across the app.

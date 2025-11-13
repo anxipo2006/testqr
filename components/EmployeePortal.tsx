@@ -1,11 +1,12 @@
 
+
 import React, { useState, useEffect } from 'react';
-import type { Employee, AttendanceRecord } from '../types';
+import type { Employee, AttendanceRecord, JobTitle } from '../types';
 import { AttendanceStatus } from '../types';
-import { getRecordsForEmployee, getLastRecordForEmployee, getShifts, getLocations } from '../services/attendanceService';
+import { getRecordsForEmployee, getLastRecordForEmployee, getShifts, getLocations, getJobTitles } from '../services/attendanceService';
 import AttendanceScanner from './AttendanceScanner';
-import { formatTimestamp } from '../utils/date';
-import { LogoutIcon, MapPinIcon, LoadingIcon } from './icons';
+import { formatTimestamp, getWeekRange, calculateHours } from '../utils/date';
+import { LogoutIcon, MapPinIcon, LoadingIcon, CurrencyDollarIcon, CalendarDaysIcon, ClockIcon } from './icons';
 
 interface EmployeePortalProps {
   employee: Employee;
@@ -17,21 +18,29 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
   const [lastStatus, setLastStatus] = useState<AttendanceStatus | null>(null);
   const [shiftInfo, setShiftInfo] = useState<string | null>(null);
   const [locationInfo, setLocationInfo] = useState<string | null>(null);
+  const [jobTitle, setJobTitle] = useState<JobTitle | null>(null);
+  const [weeklyHours, setWeeklyHours] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
 
   const loadData = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-        const [employeeRecords, lastRecord, allShifts, allLocations] = await Promise.all([
+        const [employeeRecords, lastRecord, allShifts, allLocations, allJobTitles] = await Promise.all([
             getRecordsForEmployee(employee.id),
             getLastRecordForEmployee(employee.id),
             getShifts(),
-            getLocations()
+            getLocations(),
+            getJobTitles(),
         ]);
 
         setRecords(employeeRecords);
         setLastStatus(lastRecord ? lastRecord.status : null);
 
+        // Set shift info
         if (employee.shiftId) {
             const currentShift = allShifts.find(s => s.id === employee.shiftId);
             setShiftInfo(currentShift ? `${currentShift.name} (${currentShift.startTime} - ${currentShift.endTime})` : "Ca làm việc đã bị xóa");
@@ -39,14 +48,61 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
             setShiftInfo("Chưa được phân ca");
         }
         
+        // Set location info
         if(employee.locationId) {
             const currentLocation = allLocations.find(l => l.id === employee.locationId);
             setLocationInfo(currentLocation ? currentLocation.name : "Địa điểm đã bị xóa");
         } else {
             setLocationInfo("Chưa được phân địa điểm");
         }
-    } catch (error) {
-        console.error("Failed to load employee data:", error);
+
+        // Set job title info
+        if (employee.jobTitleId) {
+            const currentJobTitle = allJobTitles.find(jt => jt.id === employee.jobTitleId);
+            setJobTitle(currentJobTitle || null);
+        } else {
+            setJobTitle(null);
+        }
+
+        // Calculate weekly hours
+        const { weekStart, weekEnd } = getWeekRange(new Date());
+        const weeklyRecords = employeeRecords.filter(r => r.timestamp >= weekStart.getTime() && r.timestamp <= weekEnd.getTime());
+        
+        const checkInMap = new Map<string, number>();
+        weeklyRecords.forEach(record => {
+            const day = new Date(record.timestamp).toDateString();
+            if (record.status === AttendanceStatus.CHECK_IN) {
+                if (!checkInMap.has(day)) {
+                    checkInMap.set(day, record.timestamp);
+                }
+            }
+        });
+        
+        let totalHours = 0;
+        for (const [day, checkInTime] of checkInMap.entries()) {
+            const dayStart = new Date(day).getTime();
+            const dayEnd = dayStart + 24 * 60 * 60 * 1000 - 1;
+
+            const checkOuts = weeklyRecords
+            .filter(r => r.status === AttendanceStatus.CHECK_OUT && r.timestamp >= dayStart && r.timestamp <= dayEnd)
+            .sort((a,b) => b.timestamp - a.timestamp);
+            
+            if (checkOuts.length > 0) {
+                totalHours += calculateHours(checkInTime, checkOuts[0].timestamp);
+            }
+        }
+        setWeeklyHours(parseFloat(totalHours.toFixed(2)));
+
+
+    } catch (err: any) {
+        console.error("Failed to load employee data:", err);
+        let errorMessage = "Không thể tải dữ liệu của bạn. Vui lòng thử đăng nhập lại hoặc liên hệ quản trị viên.";
+        if (err && err.code === 'permission-denied') {
+            errorMessage = "Lỗi quyền truy cập. Quản trị viên của bạn cần phải cập nhật Firestore Security Rules để cho phép nhân viên đọc dữ liệu.";
+        } else if (err && err.code) {
+            errorMessage = `Lỗi cơ sở dữ liệu: ${err.code}.`;
+        }
+        setError(errorMessage);
         setShiftInfo("Lỗi tải dữ liệu");
         setLocationInfo("Lỗi tải dữ liệu");
     } finally {
@@ -56,9 +112,12 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
 
   useEffect(() => {
     loadData();
-  }, [employee.id, employee.shiftId, employee.locationId]);
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee.id, employee.shiftId, employee.locationId, employee.jobTitleId]);
 
   const nextActionText = lastStatus === AttendanceStatus.CHECK_IN ? 'Check-out' : 'Check-in';
+
+  const estimatedSalary = jobTitle ? weeklyHours * jobTitle.hourlyRate : 0;
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
@@ -83,13 +142,18 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
        </header>
 
        <main className="container mx-auto p-4 sm:p-6 lg:p-8">
-           {isLoading ? (
+            {isLoading ? (
                 <div className="flex justify-center mt-16">
                     <LoadingIcon className="h-12 w-12 text-primary-500"/>
                 </div>
-           ) : (
+            ) : error ? (
+                <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 text-red-700 dark:text-red-300 p-6 rounded-lg shadow" role="alert">
+                    <p className="font-bold text-lg">Đã xảy ra lỗi</p>
+                    <p className="mt-2">{error}</p>
+                </div>
+            ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div className="lg:col-span-1">
+                    <div className="lg:col-span-1 space-y-8">
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 text-center sticky top-8">
                             <h2 className="text-lg font-semibold mb-1">Chấm công</h2>
                             <div className="text-sm text-gray-500 dark:text-gray-400 mb-4 space-y-1">
@@ -106,6 +170,32 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
                         
                             <AttendanceScanner employee={employee} onScanComplete={loadData} />
                         </div>
+
+                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                            <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white flex items-center gap-2">
+                                <CurrencyDollarIcon className="h-6 w-6 text-primary-500"/>
+                                <span>Thông tin lương tuần này</span>
+                            </h2>
+                            <div className="space-y-3 text-gray-700 dark:text-gray-300">
+                                <div className="flex justify-between items-center">
+                                    <span className="font-medium">Chức vụ:</span>
+                                    <span className="font-semibold">{jobTitle?.name || 'Chưa phân công'}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="font-medium">Mức lương:</span>
+                                    <span className="font-semibold">{jobTitle ? `${formatCurrency(jobTitle.hourlyRate)}/giờ` : 'N/A'}</span>
+                                </div>
+                                <div className="flex justify-between items-center border-t dark:border-gray-700 pt-3 mt-3">
+                                    <span className="font-medium">Giờ công tuần này:</span>
+                                    <span className="font-semibold text-lg text-blue-600 dark:text-blue-400">{weeklyHours} giờ</span>
+                                </div>
+                                <div className="flex justify-between items-center bg-green-50 dark:bg-green-900/50 p-3 rounded-lg">
+                                    <span className="font-bold">Lương ước tính:</span>
+                                    <span className="font-bold text-xl text-green-600 dark:text-green-400">{formatCurrency(estimatedSalary)}</span>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
 
                     <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow p-6">

@@ -1,6 +1,5 @@
 
 
-
 import React, { useState, useEffect } from 'react';
 import { 
   addEmployee, 
@@ -12,17 +11,20 @@ import {
   addLocation,
   updateLocation,
   deleteLocation,
+  addJobTitle,
+  updateJobTitle,
+  deleteJobTitle,
   getInitialData,
 } from '../services/attendanceService';
-import type { Employee, AttendanceRecord, Shift, Location } from '../types';
+import type { Employee, AttendanceRecord, Shift, Location, JobTitle } from '../types';
 import { AttendanceStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
-import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, DocumentArrowDownIcon, PencilIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon } from './icons';
+import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, DocumentArrowDownIcon, PencilIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon, CurrencyDollarIcon, TagIcon } from './icons';
 import { formatTimestamp, formatDateForDisplay, getWeekRange, formatTimeToHHMM, calculateHours } from '../utils/date';
 
 
 
-type Tab = 'timesheet' | 'logs' | 'employees' | 'shifts' | 'locations' | 'qrcode';
+type Tab = 'timesheet' | 'logs' | 'employees' | 'shifts' | 'locations' | 'jobTitles' | 'payroll' | 'qrcode';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -34,24 +36,35 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [jobTitles, setJobTitles] = useState<JobTitle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+  const [editingJobTitle, setEditingJobTitle] = useState<JobTitle | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   const loadData = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const { employees, records, shifts, locations } = await getInitialData();
+      const { employees, records, shifts, locations, jobTitles } = await getInitialData();
       setEmployees(employees);
       setRecords(records);
       setShifts(shifts);
       setLocations(locations);
-    } catch (error) {
-      console.error("Failed to load data:", error);
-      // Handle error display to the user
+      setJobTitles(jobTitles);
+    } catch (err: any) {
+      console.error("Failed to load data:", err);
+      let errorMessage = "Không thể tải dữ liệu. Vui lòng thử lại.";
+      if (err && err.code === 'permission-denied') {
+          errorMessage = "Lỗi quyền truy cập (permission-denied). Hãy đảm bảo Firestore Security Rules của bạn cho phép đọc dữ liệu. Ví dụ: `allow read, write: if true;` để cho phép truy cập công khai cho mục đích phát triển.";
+      } else if (err && err.code) {
+          errorMessage = `Lỗi cơ sở dữ liệu: ${err.code}. Vui lòng kiểm tra console để biết thêm chi tiết.`;
+      }
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -62,7 +75,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   }, []);
 
   const handleAddEmployee = async (employeeData: Omit<Employee, 'id' | 'deviceCode'>) => {
-      await addEmployee(employeeData.name, employeeData.username, employeeData.password, employeeData.shiftId || undefined, employeeData.locationId || undefined);
+      await addEmployee(employeeData.name, employeeData.username, employeeData.password, employeeData.shiftId || undefined, employeeData.locationId || undefined, employeeData.jobTitleId || undefined);
       await loadData();
   };
 
@@ -122,6 +135,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     await loadData();
   }
 
+  const handleAddJobTitle = async (name: string, hourlyRate: number) => {
+    await addJobTitle(name, hourlyRate);
+    await loadData();
+  };
+
+  const handleDeleteJobTitle = async (id: string) => {
+    if (window.confirm('Bạn có chắc chắn muốn xóa chức vụ này? Nhân viên có chức vụ này sẽ không còn được phân công.')) {
+        await deleteJobTitle(id);
+        await loadData();
+    }
+  };
+
+  const handleUpdateJobTitle = async (id: string, updates: Partial<JobTitle>) => {
+    await updateJobTitle(id, updates);
+    setEditingJobTitle(null);
+    await loadData();
+  };
+
+
   const getTabTitle = (tab: Tab): string => {
     switch (tab) {
       case 'timesheet': return 'Bảng chấm công';
@@ -129,6 +161,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       case 'employees': return 'Quản lý Nhân viên';
       case 'shifts': return 'Quản lý Ca làm việc';
       case 'locations': return 'Quản lý Địa điểm';
+      case 'jobTitles': return 'Quản lý Chức vụ';
+      case 'payroll': return 'Bảng lương';
       case 'qrcode': return 'Mã QR Chấm công';
       default: return 'Bảng điều khiển';
     }
@@ -142,6 +176,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
             </div>
         );
     }
+    
+    if (error) {
+        return (
+            <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 text-red-700 dark:text-red-300 p-4 rounded-r-lg" role="alert">
+                <p className="font-bold">Lỗi tải dữ liệu</p>
+                <p className="text-sm">{error}</p>
+            </div>
+        );
+    }
+
     switch (activeTab) {
       case 'logs':
         return <AttendanceLog records={records} onViewImage={setViewingImage} />;
@@ -150,6 +194,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                  employees={employees} 
                  shifts={shifts}
                  locations={locations}
+                 jobTitles={jobTitles}
                  onAddEmployee={handleAddEmployee}
                  onDeleteEmployee={handleDeleteEmployee} 
                  onEditEmployee={setEditingEmployee}
@@ -168,8 +213,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                   onDeleteLocation={handleDeleteLocation}
                   onEditLocation={setEditingLocation}
                 />;
+       case 'jobTitles':
+        return <JobTitleManagement 
+                  jobTitles={jobTitles}
+                  onAddJobTitle={handleAddJobTitle}
+                  onDeleteJobTitle={handleDeleteJobTitle}
+                  onEditJobTitle={setEditingJobTitle}
+                />
       case 'timesheet':
         return <AttendanceTimesheet employees={employees} records={records} />;
+      case 'payroll':
+        return <Payroll employees={employees} records={records} jobTitles={jobTitles} />;
       case 'qrcode':
         return <QRCodeGenerator locations={locations} />;
       default:
@@ -184,12 +238,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           <div className="p-4 border-b dark:border-gray-700">
             <h1 className="text-xl font-bold text-primary-600 dark:text-primary-400">Bảng điều khiển Admin</h1>
           </div>
-          <ul className="flex-grow p-2">
+          <ul className="flex-grow p-2 space-y-1">
             <TabButton icon={<CalendarDaysIcon className="h-6 w-6"/>} label="Bảng chấm công" isActive={activeTab === 'timesheet'} onClick={() => { setActiveTab('timesheet'); }} />
+            <TabButton icon={<CurrencyDollarIcon className="h-6 w-6"/>} label="Bảng lương" isActive={activeTab === 'payroll'} onClick={() => { setActiveTab('payroll'); }} />
             <TabButton icon={<ListBulletIcon className="h-6 w-6"/>} label="Nhật ký Chấm công" isActive={activeTab === 'logs'} onClick={() => { setActiveTab('logs'); }} />
             <TabButton icon={<UserGroupIcon className="h-6 w-6"/>} label="Quản lý Nhân viên" isActive={activeTab === 'employees'} onClick={() => { setActiveTab('employees'); }} />
             <TabButton icon={<ClockIcon className="h-6 w-6"/>} label="Quản lý Ca làm việc" isActive={activeTab === 'shifts'} onClick={() => { setActiveTab('shifts'); }} /> 
             <TabButton icon={<BuildingOffice2Icon className="h-6 w-6"/>} label="Quản lý Địa điểm" isActive={activeTab === 'locations'} onClick={() => { setActiveTab('locations'); }} />
+            <TabButton icon={<TagIcon className="h-6 w-6"/>} label="Quản lý Chức vụ" isActive={activeTab === 'jobTitles'} onClick={() => { setActiveTab('jobTitles'); }} />
             <TabButton icon={<QrCodeIcon className="h-6 w-6"/>} label="Mã QR Chấm công" isActive={activeTab === 'qrcode'} onClick={() => setActiveTab('qrcode')} />
           </ul>
           <div className="p-2 border-t dark:border-gray-700">
@@ -227,6 +283,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           employee={editingEmployee}
           shifts={shifts}
           locations={locations}
+          jobTitles={jobTitles}
           onClose={() => setEditingEmployee(null)}
           onSave={handleUpdateEmployee}
         />
@@ -243,6 +300,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           location={editingLocation}
           onClose={() => setEditingLocation(null)}
           onSave={handleUpdateLocation}
+        />
+      )}
+      {editingJobTitle && (
+        <EditJobTitleModal
+          jobTitle={editingJobTitle}
+          onClose={() => setEditingJobTitle(null)}
+          onSave={handleUpdateJobTitle}
         />
       )}
       {viewingImage && (
@@ -347,19 +411,22 @@ const EmployeeManagement: React.FC<{
   employees: Employee[],
   shifts: Shift[],
   locations: Location[],
+  jobTitles: JobTitle[],
   onAddEmployee: (employeeData: Omit<Employee, 'id' | 'deviceCode'>) => Promise<void>,
   onDeleteEmployee: (id: string) => Promise<void>,
   onEditEmployee: (employee: Employee) => void,
-}> = ({ employees, shifts, locations, onAddEmployee, onDeleteEmployee, onEditEmployee }) => {
+}> = ({ employees, shifts, locations, jobTitles, onAddEmployee, onDeleteEmployee, onEditEmployee }) => {
   const [newEmployeeName, setNewEmployeeName] = useState('');
   const [newEmployeeUsername, setNewEmployeeUsername] = useState('');
   const [newEmployeePassword, setNewEmployeePassword] = useState('');
   const [selectedShiftId, setSelectedShiftId] = useState('');
   const [selectedLocationId, setSelectedLocationId] = useState('');
+  const [selectedJobTitleId, setSelectedJobTitleId] = useState('');
   const [employeeAddError, setEmployeeAddError] = useState('');
 
   const shiftMap = new Map(shifts.map(s => [s.id, s.name]));
   const locationMap = new Map(locations.map(l => [l.id, l.name]));
+  const jobTitleMap = new Map(jobTitles.map(j => [j.id, j.name]));
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -370,13 +437,15 @@ const EmployeeManagement: React.FC<{
         username: newEmployeeUsername,
         password: newEmployeePassword,
         shiftId: selectedShiftId || null,
-        locationId: selectedLocationId || null
+        locationId: selectedLocationId || null,
+        jobTitleId: selectedJobTitleId || null,
       });
       setNewEmployeeName('');
       setNewEmployeeUsername('');
       setNewEmployeePassword('');
       setSelectedShiftId('');
       setSelectedLocationId('');
+      setSelectedJobTitleId('');
     // FIX: Handle error safely by checking if it's an instance of Error.
     } catch (error) {
       if (error instanceof Error) {
@@ -397,6 +466,11 @@ const EmployeeManagement: React.FC<{
             <FormInput id="emp-username" label="Tên đăng nhập" value={newEmployeeUsername} onChange={e => setNewEmployeeUsername(e.target.value)} placeholder="VD: nguyenvana" required />
             <FormInput id="emp-password" label="Mật khẩu" type="password" value={newEmployeePassword} onChange={e => setNewEmployeePassword(e.target.value)} placeholder="••••••••" required />
             
+             <FormSelect id="job-title-select" label="Chức vụ" value={selectedJobTitleId} onChange={e => setSelectedJobTitleId(e.target.value)}>
+              <option value="">Chưa phân công</option>
+              {jobTitles.map(jt => <option key={jt.id} value={jt.id}>{jt.name}</option>)}
+            </FormSelect>
+
             <FormSelect id="shift-select" label="Ca làm việc" value={selectedShiftId} onChange={e => setSelectedShiftId(e.target.value)}>
               <option value="">Không phân ca</option>
               {shifts.map(shift => <option key={shift.id} value={shift.id}>{shift.name} ({shift.startTime} - {shift.endTime})</option>)}
@@ -417,11 +491,14 @@ const EmployeeManagement: React.FC<{
           <div key={employee.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex-grow">
                <p className="font-bold text-lg text-gray-900 dark:text-white">{employee.name}</p>
-               <p className="font-mono text-sm text-primary-600 dark:text-primary-400">{employee.username}</p>
+               <div className="flex items-center gap-2">
+                 <p className="font-mono text-sm text-primary-600 dark:text-primary-400">{employee.username}</p>
+                 <span className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 px-2 py-0.5 rounded-full">{employee.jobTitleId && jobTitleMap.get(employee.jobTitleId) || 'Chưa có chức vụ'}</span>
+               </div>
                <div className="mt-2 text-sm text-gray-600 dark:text-gray-400 grid grid-cols-2 gap-x-4 gap-y-1">
                   <div className="flex items-center gap-2"><strong>Mã:</strong> <span className="font-mono bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded text-xs">{employee.deviceCode}</span></div>
-                  <div className="flex items-center gap-2 truncate"><strong>Ca:</strong> <span className="truncate">{employee.shiftId && shiftMap.has(employee.shiftId) ? shiftMap.get(employee.shiftId) : 'Chưa phân'}</span></div>
-                  <div className="flex items-center gap-2 truncate col-span-2"><strong>Địa điểm:</strong> <span className="truncate">{employee.locationId && locationMap.has(employee.locationId) ? locationMap.get(employee.locationId) : 'Chưa phân'}</span></div>
+                  <div className="flex items-center gap-2 truncate"><strong>Ca:</strong> <span className="truncate">{employee.shiftId && shiftMap.get(employee.shiftId) || 'Chưa phân'}</span></div>
+                  <div className="flex items-center gap-2 truncate col-span-2"><strong>Địa điểm:</strong> <span className="truncate">{employee.locationId && locationMap.get(employee.locationId) || 'Chưa phân'}</span></div>
                </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-center">
@@ -603,6 +680,76 @@ const LocationManagement: React.FC<{
              {locations.length === 0 && <p className="text-center py-8 text-gray-500">Chưa có địa điểm nào được cấu hình.</p>}
         </div>
     );
+};
+
+
+const JobTitleManagement: React.FC<{
+  jobTitles: JobTitle[],
+  onAddJobTitle: (name: string, hourlyRate: number) => Promise<void>,
+  onDeleteJobTitle: (id: string) => Promise<void>,
+  onEditJobTitle: (jobTitle: JobTitle) => void,
+}> = ({ jobTitles, onAddJobTitle, onDeleteJobTitle, onEditJobTitle }) => {
+  const [name, setName] = useState('');
+  const [hourlyRate, setHourlyRate] = useState<number | ''>('');
+  const [error, setError] = useState('');
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (hourlyRate === '' || hourlyRate <= 0) {
+        setError('Mức lương phải là một số dương.');
+        return;
+    }
+    try {
+      await onAddJobTitle(name, hourlyRate);
+      setName('');
+      setHourlyRate('');
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unknown error occurred.');
+      }
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Thêm Chức vụ mới</h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <FormInput id="job-title-name" label="Tên chức vụ" value={name} onChange={e => setName(e.target.value)} placeholder="VD: Phục vụ" required />
+            <FormInput id="hourly-rate" label="Lương theo giờ (VND)" type="number" value={hourlyRate} onChange={e => setHourlyRate(parseInt(e.target.value, 10) || '')} placeholder="VD: 25000" required />
+          </div>
+          <button type="submit" className="mt-4 px-6 py-2 font-semibold text-white bg-primary-600 rounded-md hover:bg-primary-700">Thêm chức vụ</button>
+          {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+        </form>
+      </div>
+       <div className="space-y-3">
+        {jobTitles.map(jt => (
+          <div key={jt.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center justify-between">
+            <span className="font-medium text-gray-800 dark:text-gray-200">
+              {jt.name} <span className="text-gray-500 dark:text-gray-400 font-normal">({formatCurrency(jt.hourlyRate)}/giờ)</span>
+            </span>
+            <div className="flex items-center gap-2">
+                <button onClick={() => onEditJobTitle(jt)} className="p-2 text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500">
+                    <PencilIcon className="h-5 w-5" />
+                </button>
+                <button onClick={() => onDeleteJobTitle(jt.id)} className="p-2 text-white bg-red-600 rounded-md hover:bg-red-700">
+                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {jobTitles.length === 0 && <p className="text-center py-8 text-gray-500">Chưa có chức vụ nào.</p>}
+    </div>
+  );
 };
 
 
@@ -790,18 +937,174 @@ const AttendanceTimesheet: React.FC<{ employees: Employee[], records: Attendance
 };
 
 
+interface PayrollData {
+  employeeName: string;
+  jobTitle: string;
+  hourlyRate: number;
+  totalHours: number;
+  totalSalary: number;
+}
+
+const Payroll: React.FC<{ employees: Employee[], records: AttendanceRecord[], jobTitles: JobTitle[] }> = ({ employees, records, jobTitles }) => {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [payrollData, setPayrollData] = useState<PayrollData[]>([]);
+
+  const jobTitleMap = new Map(jobTitles.map(jt => [jt.id, jt]));
+  const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
+  
+  useEffect(() => {
+    const { weekStart, weekEnd } = getWeekRange(currentDate);
+
+    const processed = employees.map(employee => {
+      const employeeRecords = records.filter(r => 
+        r.employeeId === employee.id && 
+        r.timestamp >= weekStart.getTime() && 
+        r.timestamp <= weekEnd.getTime()
+      );
+
+      const checkInMap = new Map<string, number>();
+      employeeRecords.forEach(record => {
+        const day = new Date(record.timestamp).toDateString();
+        if (record.status === AttendanceStatus.CHECK_IN) {
+          if (!checkInMap.has(day)) {
+            checkInMap.set(day, record.timestamp);
+          }
+        }
+      });
+      
+      let totalHours = 0;
+      for (const [day, checkInTime] of checkInMap.entries()) {
+        const dayStart = new Date(day).getTime();
+        const dayEnd = dayStart + 24 * 60 * 60 * 1000 - 1;
+
+        const checkOuts = employeeRecords
+          .filter(r => r.status === AttendanceStatus.CHECK_OUT && r.timestamp >= dayStart && r.timestamp <= dayEnd)
+          .sort((a,b) => b.timestamp - a.timestamp);
+        
+        if (checkOuts.length > 0) {
+            totalHours += calculateHours(checkInTime, checkOuts[0].timestamp);
+        }
+      }
+
+      const jobTitle = employee.jobTitleId ? jobTitleMap.get(employee.jobTitleId) : null;
+      const hourlyRate = jobTitle?.hourlyRate || 0;
+      const totalSalary = totalHours * hourlyRate;
+
+      return {
+        employeeName: employee.name,
+        jobTitle: jobTitle?.name || 'Chưa phân công',
+        hourlyRate,
+        totalHours: parseFloat(totalHours.toFixed(2)),
+        totalSalary
+      };
+    });
+
+    setPayrollData(processed);
+  }, [currentDate, employees, records, jobTitles, jobTitleMap]);
+
+   const handlePrevWeek = () => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setDate(prev.getDate() - 7);
+      return newDate;
+    });
+  };
+
+  const handleNextWeek = () => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setDate(prev.getDate() + 7);
+      return newDate;
+    });
+  };
+
+  const handleExport = () => {
+    const { weekStart } = getWeekRange(currentDate);
+    const headers = ['Nhân viên', 'Chức vụ', 'Lương/giờ', 'Tổng giờ', 'Tổng lương'];
+    const rows = [headers.join(',')];
+
+    payrollData.forEach((data) => {
+        rows.push([
+            data.employeeName,
+            data.jobTitle,
+            data.hourlyRate,
+            data.totalHours,
+            data.totalSalary
+        ].join(','));
+    });
+    
+    const csvContent = "data:text/csv;charset=utf-8," + '\uFEFF' + rows.join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Bang_luong_tuan_${formatDateForDisplay(weekStart).replace('/', '-')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  
+  const { weekStart, weekEnd } = getWeekRange(currentDate);
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="flex justify-between items-center mb-4">
+         <div>
+          <div className="flex items-center gap-4 text-gray-500 dark:text-gray-400">
+             <button onClick={handlePrevWeek} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">{'<'}</button>
+             <span>{formatDateForDisplay(weekStart)} - {formatDateForDisplay(weekEnd)}</span>
+             <button onClick={handleNextWeek} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">{'>'}</button>
+          </div>
+        </div>
+        <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700">
+            <DocumentArrowDownIcon className="h-5 w-5" />
+            <span>Xuất CSV</span>
+        </button>
+      </div>
+       <div className="overflow-x-auto">
+        <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+          <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+            <tr>
+              <th scope="col" className="px-6 py-3">Nhân viên</th>
+              <th scope="col" className="px-6 py-3">Chức vụ</th>
+              <th scope="col" className="px-6 py-3">Lương/giờ</th>
+              <th scope="col" className="px-6 py-3">Tổng giờ</th>
+              <th scope="col" className="px-6 py-3">Tổng lương</th>
+            </tr>
+          </thead>
+          <tbody>
+            {payrollData.map((data, index) => (
+              <tr key={index} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap dark:text-white">{data.employeeName}</td>
+                <td className="px-6 py-4">{data.jobTitle}</td>
+                <td className="px-6 py-4">{formatCurrency(data.hourlyRate)}</td>
+                <td className="px-6 py-4">{data.totalHours}h</td>
+                <td className="px-6 py-4 font-bold text-primary-600 dark:text-primary-400">{formatCurrency(data.totalSalary)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+         {employees.length === 0 && <p className="text-center py-8 text-gray-500">Chưa có nhân viên nào để tính lương.</p>}
+      </div>
+    </div>
+  );
+};
+
+
+
 const EditEmployeeModal: React.FC<{
   employee: Employee;
   shifts: Shift[];
   locations: Location[];
+  jobTitles: JobTitle[];
   onClose: () => void;
   onSave: (id: string, updates: Partial<Employee>) => Promise<{ success: boolean, message?: string }>;
-}> = ({ employee, shifts, locations, onClose, onSave }) => {
+}> = ({ employee, shifts, locations, jobTitles, onClose, onSave }) => {
   const [name, setName] = useState(employee.name);
   const [username, setUsername] = useState(employee.username);
   const [password, setPassword] = useState('');
   const [shiftId, setShiftId] = useState(employee.shiftId || '');
   const [locationId, setLocationId] = useState(employee.locationId || '');
+  const [jobTitleId, setJobTitleId] = useState(employee.jobTitleId || '');
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -816,6 +1119,7 @@ const EditEmployeeModal: React.FC<{
     if (password) updates.password = password;
     updates.shiftId = shiftId || null;
     updates.locationId = locationId || null;
+    updates.jobTitleId = jobTitleId || null;
     
     const result = await onSave(employee.id, updates);
     if (!result.success) {
@@ -834,6 +1138,10 @@ const EditEmployeeModal: React.FC<{
           <FormInput label="Tên hiển thị" value={name} onChange={e => setName(e.target.value)} required />
           <FormInput label="Tên đăng nhập" value={username} onChange={e => setUsername(e.target.value)} required />
           <FormInput label="Mật khẩu mới" type="password" onChange={e => setPassword(e.target.value)} placeholder="Để trống nếu không đổi" />
+          <FormSelect label="Chức vụ" value={jobTitleId} onChange={e => setJobTitleId(e.target.value)}>
+            <option value="">Chưa phân công</option>
+            {jobTitles.map(jt => <option key={jt.id} value={jt.id}>{jt.name}</option>)}
+          </FormSelect>
           <FormSelect label="Ca làm việc" value={shiftId} onChange={e => setShiftId(e.target.value)}>
             <option value="">Không phân ca</option>
             {shifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -935,6 +1243,40 @@ const EditLocationModal: React.FC<{
         </div>
     );
 };
+
+const EditJobTitleModal: React.FC<{
+  jobTitle: JobTitle;
+  onClose: () => void;
+  onSave: (id: string, updates: Partial<JobTitle>) => Promise<void>;
+}> = ({ jobTitle, onClose, onSave }) => {
+    const [name, setName] = useState(jobTitle.name);
+    const [hourlyRate, setHourlyRate] = useState(jobTitle.hourlyRate);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const updates: Partial<JobTitle> = {};
+        if (name !== jobTitle.name) updates.name = name;
+        if (hourlyRate !== jobTitle.hourlyRate) updates.hourlyRate = hourlyRate;
+        await onSave(jobTitle.id, updates);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
+                <h3 className="text-lg font-bold mb-4">Chỉnh sửa Chức vụ</h3>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <FormInput label="Tên chức vụ" value={name} onChange={e => setName(e.target.value)} required />
+                    <FormInput label="Lương/giờ (VND)" type="number" value={hourlyRate} onChange={e => setHourlyRate(parseInt(e.target.value, 10) || 0)} required />
+                    <div className="flex justify-end gap-2 pt-4">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-md text-gray-800 hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Hủy</button>
+                        <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">Lưu</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
 
 // --- Reusable Form Components ---
 const FormInput: React.FC<React.InputHTMLAttributes<HTMLInputElement> & { label: string }> = ({ label, id, ...props }) => (

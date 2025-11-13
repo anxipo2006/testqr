@@ -2,7 +2,7 @@
 import { db } from './firebaseConfig';
 
 import { AttendanceStatus } from '../types';
-import type { Employee, AttendanceRecord, Shift, CurrentUser, Location } from '../types';
+import type { Employee, AttendanceRecord, Shift, CurrentUser, Location, JobTitle } from '../types';
 
 
 // --- Collection References ---
@@ -11,6 +11,7 @@ const locationsCol = db.collection('locations');
 const shiftsCol = db.collection('shifts');
 const employeesCol = db.collection('employees');
 const recordsCol = db.collection('records');
+const jobTitlesCol = db.collection('jobTitles');
 
 
 // --- Geolocation Helpers ---
@@ -135,6 +136,37 @@ export const deleteShift = async (id: string): Promise<void> => {
 };
 
 
+// --- Job Title Management ---
+export const getJobTitles = async (): Promise<JobTitle[]> => {
+  const snapshot = await jobTitlesCol.get();
+  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JobTitle));
+};
+
+export const addJobTitle = async (name: string, hourlyRate: number): Promise<JobTitle> => {
+  if (!name.trim() || hourlyRate <= 0) {
+    throw new Error('Vui lòng điền tên và mức lương hợp lệ (lớn hơn 0).');
+  }
+  const newTitle: Omit<JobTitle, 'id'> = {
+    name: name.trim(),
+    hourlyRate,
+  };
+  const docRef = await jobTitlesCol.add(newTitle);
+  return { ...newTitle, id: docRef.id };
+};
+
+export const updateJobTitle = async (id: string, updates: Partial<Omit<JobTitle, 'id'>>): Promise<JobTitle> => {
+  const docRef = db.collection('jobTitles').doc(id);
+  await docRef.update(updates);
+  const updatedDoc = await docRef.get();
+  return { ...updatedDoc.data(), id: id } as JobTitle;
+};
+
+export const deleteJobTitle = async (id: string): Promise<void> => {
+  await db.collection('jobTitles').doc(id).delete();
+  // In a real app, you might want to handle unassigning employees via a Cloud Function
+};
+
+
 // --- Employee Management ---
 export const getEmployees = async (): Promise<Employee[]> => {
   // FIX: Use v8 compat syntax for getting documents
@@ -146,7 +178,7 @@ const generateDeviceCode = (): string => {
     return Math.random().toString(36).substring(2, 7).toUpperCase();
 }
 
-export const addEmployee = async (name: string, username: string, password: string, shiftId?: string, locationId?: string): Promise<Employee> => {
+export const addEmployee = async (name: string, username: string, password: string, shiftId?: string, locationId?: string, jobTitleId?: string): Promise<Employee> => {
   if (!name.trim() || !username.trim() || !password.trim()) {
     throw new Error('Vui lòng điền đầy đủ thông tin.');
   }
@@ -166,6 +198,7 @@ export const addEmployee = async (name: string, username: string, password: stri
     deviceCode: generateDeviceCode(),
     shiftId: shiftId || null,
     locationId: locationId || null,
+    jobTitleId: jobTitleId || null,
   };
   // FIX: Use v8 compat syntax for adding a document
   const docRef = await employeesCol.add(newEmployee);
@@ -377,11 +410,12 @@ export const addAttendanceRecord = async (
 
 // --- Data Fetching ---
 export const getInitialData = async () => {
-    const [employees, records, shifts, locations] = await Promise.all([
+    const [employees, records, shifts, locations, jobTitles] = await Promise.all([
         getEmployees(),
         getAttendanceRecords(),
         getShifts(),
-        getLocations()
+        getLocations(),
+        getJobTitles(),
     ]);
-    return { employees, records, shifts, locations };
+    return { employees, records, shifts, locations, jobTitles };
 };
