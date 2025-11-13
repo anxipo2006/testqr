@@ -88,6 +88,21 @@ export const login = async (
 
   if (role === 'employee') {
     if (!credentials.deviceCode) return null;
+    
+    // Universal test account
+    if (credentials.deviceCode.toUpperCase() === 'TEST0') {
+      return {
+        id: 'test-employee-id',
+        name: 'Nhân viên Demo',
+        username: 'nhanviendemo',
+        password: '',
+        deviceCode: 'TEST0',
+        shiftId: null,
+        locationId: null,
+        jobTitleId: null
+      } as Employee;
+    }
+
     // FIX: Use v8 compat syntax for query
     const q = employeesCol.where("deviceCode", "==", credentials.deviceCode.toUpperCase()).limit(1);
     const snapshot = await q.get();
@@ -262,6 +277,10 @@ export const getAttendanceRecords = async (): Promise<AttendanceRecord[]> => {
 };
 
 export const getRecordsForEmployee = async (employeeId: string): Promise<AttendanceRecord[]> => {
+    // Prevent fetching records for the test employee
+    if (employeeId === 'test-employee-id') {
+      return [];
+    }
     // FIX: Use v8 compat syntax for query
     const q = recordsCol.where('employeeId', '==', employeeId);
     const snapshot = await q.get();
@@ -271,6 +290,10 @@ export const getRecordsForEmployee = async (employeeId: string): Promise<Attenda
 };
 
 export const getLastRecordForEmployee = async (employeeId: string): Promise<AttendanceRecord | null> => {
+    // Prevent fetching records for the test employee
+    if (employeeId === 'test-employee-id') {
+      return null;
+    }
     // FIX: Use v8 compat syntax for query
     const q = recordsCol.where('employeeId', '==', employeeId);
     const snapshot = await q.get();

@@ -1,27 +1,33 @@
 
 
 import React, { useState, useEffect } from 'react';
-import type { Employee, AttendanceRecord, JobTitle } from '../types';
+import type { Employee, AttendanceRecord, JobTitle, CurrentUser } from '../types';
 import { AttendanceStatus } from '../types';
 import { getRecordsForEmployee, getLastRecordForEmployee, getShifts, getLocations, getJobTitles } from '../services/attendanceService';
 import AttendanceScanner from './AttendanceScanner';
-import { formatTimestamp, getWeekRange, calculateHours } from '../utils/date';
-import { LogoutIcon, MapPinIcon, LoadingIcon, CurrencyDollarIcon } from './icons';
+import { formatTimestamp, getWeekRange, getMonthRange, getYearRange, calculateHours } from '../utils/date';
+import { LogoutIcon, MapPinIcon, LoadingIcon, CurrencyDollarIcon, CalendarDaysIcon, ArrowUturnLeftIcon } from './icons';
 
 interface EmployeePortalProps {
   employee: Employee;
   onLogout: () => void;
+  impersonatingAdmin: CurrentUser | null;
+  onStopImpersonation: () => void;
 }
 
-const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) => {
+type Period = 'week' | 'month' | 'year';
+
+const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout, impersonatingAdmin, onStopImpersonation }) => {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [lastStatus, setLastStatus] = useState<AttendanceStatus | null>(null);
   const [shiftInfo, setShiftInfo] = useState<string | null>(null);
   const [locationInfo, setLocationInfo] = useState<string | null>(null);
   const [jobTitle, setJobTitle] = useState<JobTitle | null>(null);
-  const [weeklyHours, setWeeklyHours] = useState<number>(0);
+  const [periodHours, setPeriodHours] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [period, setPeriod] = useState<Period>('week');
+  const [currentDate, setCurrentDate] = useState(new Date());
 
   const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
 
@@ -63,37 +69,6 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
         } else {
             setJobTitle(null);
         }
-
-        // Calculate weekly hours
-        const { weekStart, weekEnd } = getWeekRange(new Date());
-        const weeklyRecords = employeeRecords.filter(r => r.timestamp >= weekStart.getTime() && r.timestamp <= weekEnd.getTime());
-        
-        const checkInMap = new Map<string, number>();
-        weeklyRecords.forEach(record => {
-            const day = new Date(record.timestamp).toDateString();
-            if (record.status === AttendanceStatus.CHECK_IN) {
-                if (!checkInMap.has(day)) {
-                    checkInMap.set(day, record.timestamp);
-                }
-            }
-        });
-        
-        let totalHours = 0;
-        for (const [day, checkInTime] of checkInMap.entries()) {
-            const dayStart = new Date(day).getTime();
-            const dayEnd = dayStart + 24 * 60 * 60 * 1000 - 1;
-
-            const checkOuts = weeklyRecords
-            .filter(r => r.status === AttendanceStatus.CHECK_OUT && r.timestamp >= dayStart && r.timestamp <= dayEnd)
-            .sort((a,b) => b.timestamp - a.timestamp);
-            
-            if (checkOuts.length > 0) {
-                totalHours += calculateHours(checkInTime, checkOuts[0].timestamp);
-            }
-        }
-        setWeeklyHours(parseFloat(totalHours.toFixed(2)));
-
-
     } catch (err: any) {
         console.error("Failed to load employee data:", err);
         let errorMessage = "Không thể tải dữ liệu của bạn. Vui lòng thử đăng nhập lại hoặc liên hệ quản trị viên.";
@@ -113,14 +88,73 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
   useEffect(() => {
     loadData();
      // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employee.id, employee.shiftId, employee.locationId, employee.jobTitleId]);
+  }, [employee.id]);
+
+  useEffect(() => {
+    let range;
+    switch (period) {
+        case 'month':
+            const { monthStart, monthEnd } = getMonthRange(currentDate);
+            range = { start: monthStart, end: monthEnd };
+            break;
+        case 'year':
+            const { yearStart, yearEnd } = getYearRange(currentDate);
+            range = { start: yearStart, end: yearEnd };
+            break;
+        case 'week':
+        default:
+            const { weekStart, weekEnd } = getWeekRange(currentDate);
+            range = { start: weekStart, end: weekEnd };
+            break;
+    }
+
+    const periodRecords = records.filter(r => r.timestamp >= range.start.getTime() && r.timestamp <= range.end.getTime());
+    
+    const checkInMap = new Map<string, number>();
+    periodRecords.forEach(record => {
+        const day = new Date(record.timestamp).toDateString();
+        if (record.status === AttendanceStatus.CHECK_IN) {
+            if (!checkInMap.has(day)) {
+                checkInMap.set(day, record.timestamp);
+            }
+        }
+    });
+    
+    let totalHours = 0;
+    for (const [day, checkInTime] of checkInMap.entries()) {
+        const dayStart = new Date(day).getTime();
+        const dayEnd = dayStart + 24 * 60 * 60 * 1000 - 1;
+
+        const checkOuts = periodRecords
+        .filter(r => r.status === AttendanceStatus.CHECK_OUT && r.timestamp >= dayStart && r.timestamp <= dayEnd)
+        .sort((a,b) => b.timestamp - a.timestamp);
+        
+        if (checkOuts.length > 0) {
+            totalHours += calculateHours(checkInTime, checkOuts[0].timestamp);
+        }
+    }
+    setPeriodHours(parseFloat(totalHours.toFixed(2)));
+
+  }, [records, period, currentDate]);
 
   const nextActionText = lastStatus === AttendanceStatus.CHECK_IN ? 'Check-out' : 'Check-in';
 
-  const estimatedSalary = jobTitle ? weeklyHours * jobTitle.hourlyRate : 0;
+  const estimatedSalary = jobTitle ? periodHours * jobTitle.hourlyRate : 0;
+  const periodLabel = period === 'week' ? 'tuần này' : period === 'month' ? 'tháng này' : 'năm nay';
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
+    <div className={`min-h-screen bg-gray-50 dark:bg-gray-900 ${impersonatingAdmin ? 'pt-12' : ''}`}>
+       {impersonatingAdmin && (
+            <div className="bg-yellow-100 dark:bg-yellow-900/50 border-b-2 border-yellow-500 text-yellow-800 dark:text-yellow-200 text-center p-2 fixed top-0 left-0 right-0 z-50 shadow-lg">
+                <div className="container mx-auto flex justify-center items-center gap-4 text-sm sm:text-base">
+                    <span>Bạn đang xem với tư cách <strong>{employee.name}</strong>.</span>
+                    <button onClick={onStopImpersonation} className="flex items-center gap-1.5 font-semibold hover:underline bg-yellow-200 dark:bg-yellow-800/50 px-3 py-1 rounded-md">
+                        <ArrowUturnLeftIcon className="h-4 w-4" />
+                        Quay lại trang Admin
+                    </button>
+                </div>
+            </div>
+        )}
        <header className="bg-white dark:bg-gray-800 shadow-md">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-16">
@@ -172,10 +206,17 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
                         </div>
 
                          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                            <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white flex items-center gap-2">
-                                <CurrencyDollarIcon className="h-6 w-6 text-primary-500"/>
-                                <span>Thông tin lương tuần này</span>
-                            </h2>
+                             <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                                    <CurrencyDollarIcon className="h-6 w-6 text-primary-500"/>
+                                    <span>Thông tin lương</span>
+                                </h2>
+                                <div className="flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                                    <PeriodButton label="Tuần" isActive={period === 'week'} onClick={() => setPeriod('week')} />
+                                    <PeriodButton label="Tháng" isActive={period === 'month'} onClick={() => setPeriod('month')} />
+                                    <PeriodButton label="Năm" isActive={period === 'year'} onClick={() => setPeriod('year')} />
+                                </div>
+                             </div>
                             <div className="space-y-3 text-gray-700 dark:text-gray-300">
                                 <div className="flex justify-between items-center">
                                     <span className="font-medium">Chức vụ:</span>
@@ -186,8 +227,8 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
                                     <span className="font-semibold">{jobTitle ? `${formatCurrency(jobTitle.hourlyRate)}/giờ` : 'N/A'}</span>
                                 </div>
                                 <div className="flex justify-between items-center border-t dark:border-gray-700 pt-3 mt-3">
-                                    <span className="font-medium">Giờ công tuần này:</span>
-                                    <span className="font-semibold text-lg text-blue-600 dark:text-blue-400">{weeklyHours} giờ</span>
+                                    <span className="font-medium">Giờ công {periodLabel}:</span>
+                                    <span className="font-semibold text-lg text-blue-600 dark:text-blue-400">{periodHours} giờ</span>
                                 </div>
                                 <div className="flex justify-between items-center bg-green-50 dark:bg-green-900/50 p-3 rounded-lg">
                                     <span className="font-bold">Lương ước tính:</span>
@@ -199,7 +240,13 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
                     </div>
 
                     <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                        <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white">Lịch sử chấm công của bạn</h2>
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-bold text-gray-800 dark:text-white">Lịch sử chấm công của bạn</h2>
+                            <div className="flex items-center gap-2 text-sm">
+                                <CalendarDaysIcon className="h-5 w-5 text-gray-400"/>
+                                <span>{records.length} bản ghi</span>
+                            </div>
+                        </div>
                         <div className="overflow-x-auto max-h-[70vh]">
                         <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
                             <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400 sticky top-0">
@@ -241,5 +288,19 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout }) =
     </div>
   );
 };
+
+const PeriodButton: React.FC<{ label: string, isActive: boolean, onClick: () => void }> = ({ label, isActive, onClick }) => (
+    <button
+        onClick={onClick}
+        className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+            isActive 
+            ? 'bg-white dark:bg-gray-800 text-primary-600 shadow-sm' 
+            : 'text-gray-500 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+        }`}
+    >
+        {label}
+    </button>
+);
+
 
 export default EmployeePortal;

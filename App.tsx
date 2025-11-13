@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import type { CurrentUser } from './types';
+import type { CurrentUser, Employee } from './types';
 import LoginScreen from './components/LoginScreen';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeePortal from './components/EmployeePortal';
@@ -10,7 +10,8 @@ import { login } from './services/attendanceService';
 
 
 function App() {
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [currentUser, setCurrentUser] = useLocalStorage<CurrentUser | null>('currentUser', null);
+  const [originalAdmin, setOriginalAdmin] = useLocalStorage<CurrentUser | null>('originalAdmin', null);
   const [isLoading, setIsLoading] = useState(true);
   const [savedDeviceCode, setSavedDeviceCode] = useLocalStorage<string | null>('employeeDeviceCode', null);
 
@@ -35,7 +36,12 @@ function App() {
       setIsLoading(false);
     };
 
-    autoLogin();
+    // Chỉ tự động đăng nhập nếu không có phiên giả lập
+    if (!originalAdmin) {
+        autoLogin();
+    } else {
+        setIsLoading(false);
+    }
      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -43,6 +49,7 @@ function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     setSavedDeviceCode(null); // Xóa mã đã lưu khi đăng xuất
+    setOriginalAdmin(null); // Xóa phiên giả lập
   };
 
   const handleLogin = (user: CurrentUser) => {
@@ -50,7 +57,23 @@ function App() {
     if ('deviceCode' in user) {
         setSavedDeviceCode(user.deviceCode);
     }
+    // Xóa bất kỳ phiên giả lập nào còn sót lại khi đăng nhập mới
+    setOriginalAdmin(null);
     setCurrentUser(user);
+  };
+  
+  const handleImpersonate = (employeeToImpersonate: Employee) => {
+    if (currentUser && !('deviceCode' in currentUser)) { // Ensure it's an admin
+      setOriginalAdmin(currentUser);
+      setCurrentUser(employeeToImpersonate);
+    }
+  };
+
+  const handleStopImpersonation = () => {
+    if (originalAdmin) {
+      setCurrentUser(originalAdmin);
+      setOriginalAdmin(null);
+    }
   };
 
   if (isLoading) {
@@ -65,9 +88,17 @@ function App() {
   if (!currentUser) {
     content = <LoginScreen onLogin={handleLogin} />;
   } else if ('deviceCode' in currentUser) {
-    content = <EmployeePortal employee={currentUser} onLogout={handleLogout} />;
+    content = <EmployeePortal 
+                employee={currentUser} 
+                onLogout={handleLogout}
+                impersonatingAdmin={originalAdmin}
+                onStopImpersonation={handleStopImpersonation}
+              />;
   } else {
-    content = <AdminDashboard onLogout={handleLogout} />;
+    content = <AdminDashboard 
+                onLogout={handleLogout} 
+                onImpersonate={handleImpersonate}
+              />;
   }
 
   return (

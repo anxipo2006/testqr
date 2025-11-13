@@ -103,8 +103,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         />
       </div>
        <LoginButton />
-       <div className="text-center text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-dashed dark:border-gray-600">
-          <p>Xin chào đại ca <strong></strong> / <strong></strong></p>
+       <div className="text-center text-xs text-gray-500 dark:text-gray-400 pt-4 mt-4 border-t border-dashed dark:border-gray-600">
+          <p>TK Admin: <strong>admin</strong> / <strong>admin123</strong></p>
+          <p>TK Nhân viên Test: Mã <strong>TEST0</strong></p>
       </div>
     </form>
   );

@@ -23,6 +23,30 @@ export const getWeekRange = (date: Date): { weekStart: Date; weekEnd: Date } => 
   return { weekStart, weekEnd };
 };
 
+export const getMonthRange = (date: Date): { monthStart: Date; monthEnd: Date } => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const monthStart = new Date(year, month, 1);
+    monthStart.setHours(0, 0, 0, 0);
+    
+    const monthEnd = new Date(year, month + 1, 0);
+    monthEnd.setHours(23, 59, 59, 999);
+
+    return { monthStart, monthEnd };
+};
+
+export const getYearRange = (date: Date): { yearStart: Date; yearEnd: Date } => {
+    const year = date.getFullYear();
+    const yearStart = new Date(year, 0, 1);
+    yearStart.setHours(0, 0, 0, 0);
+    
+    const yearEnd = new Date(year, 11, 31);
+    yearEnd.setHours(23, 59, 59, 999);
+
+    return { yearStart, yearEnd };
+};
+
+
 export const formatDateForDisplay = (date: Date): string => {
   return date.toLocaleDateString('vi-VN', {
     day: '2-digit',

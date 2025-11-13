@@ -19,8 +19,8 @@ import {
 import type { Employee, AttendanceRecord, Shift, Location, JobTitle } from '../types';
 import { AttendanceStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
-import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, DocumentArrowDownIcon, PencilIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon, CurrencyDollarIcon, TagIcon } from './icons';
-import { formatTimestamp, formatDateForDisplay, getWeekRange, formatTimeToHHMM, calculateHours } from '../utils/date';
+import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, DocumentArrowDownIcon, PencilIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon, CurrencyDollarIcon, TagIcon, EyeIcon } from './icons';
+import { formatTimestamp, formatDateForDisplay, getWeekRange, getMonthRange, getYearRange, formatTimeToHHMM, calculateHours } from '../utils/date';
 
 
 
@@ -28,9 +28,10 @@ type Tab = 'timesheet' | 'logs' | 'employees' | 'shifts' | 'locations' | 'jobTit
 
 interface AdminDashboardProps {
   onLogout: () => void;
+  onImpersonate: (employee: Employee) => void;
 }
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate }) => {
   const [activeTab, setActiveTab] = useState<Tab>('timesheet');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
@@ -198,6 +199,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                  onAddEmployee={handleAddEmployee}
                  onDeleteEmployee={handleDeleteEmployee} 
                  onEditEmployee={setEditingEmployee}
+                 onImpersonate={onImpersonate}
                />;
       case 'shifts':
         return <ShiftManagement 
@@ -233,20 +235,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
 
   return (
     <>
-      <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
+      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
         <nav className="w-64 bg-white dark:bg-gray-800 shadow-lg flex flex-col">
-          <div className="p-4 border-b dark:border-gray-700">
-            <h1 className="text-xl font-bold text-primary-600 dark:text-primary-400">Bảng điều khiển Admin</h1>
+          <div className="p-4 border-b dark:border-gray-700 flex items-center gap-3">
+             <div className="bg-primary-600 p-2 rounded-lg">
+                <UserGroupIcon className="h-6 w-6 text-white"/>
+            </div>
+            <h1 className="text-xl font-bold text-primary-600 dark:text-primary-400">Admin</h1>
           </div>
           <ul className="flex-grow p-2 space-y-1">
             <TabButton icon={<CalendarDaysIcon className="h-6 w-6"/>} label="Bảng chấm công" isActive={activeTab === 'timesheet'} onClick={() => { setActiveTab('timesheet'); }} />
             <TabButton icon={<CurrencyDollarIcon className="h-6 w-6"/>} label="Bảng lương" isActive={activeTab === 'payroll'} onClick={() => { setActiveTab('payroll'); }} />
-            <TabButton icon={<ListBulletIcon className="h-6 w-6"/>} label="Nhật ký Chấm công" isActive={activeTab === 'logs'} onClick={() => { setActiveTab('logs'); }} />
-            <TabButton icon={<UserGroupIcon className="h-6 w-6"/>} label="Quản lý Nhân viên" isActive={activeTab === 'employees'} onClick={() => { setActiveTab('employees'); }} />
-            <TabButton icon={<ClockIcon className="h-6 w-6"/>} label="Quản lý Ca làm việc" isActive={activeTab === 'shifts'} onClick={() => { setActiveTab('shifts'); }} /> 
-            <TabButton icon={<BuildingOffice2Icon className="h-6 w-6"/>} label="Quản lý Địa điểm" isActive={activeTab === 'locations'} onClick={() => { setActiveTab('locations'); }} />
-            <TabButton icon={<TagIcon className="h-6 w-6"/>} label="Quản lý Chức vụ" isActive={activeTab === 'jobTitles'} onClick={() => { setActiveTab('jobTitles'); }} />
-            <TabButton icon={<QrCodeIcon className="h-6 w-6"/>} label="Mã QR Chấm công" isActive={activeTab === 'qrcode'} onClick={() => setActiveTab('qrcode')} />
+            <TabButton icon={<ListBulletIcon className="h-6 w-6"/>} label="Nhật ký" isActive={activeTab === 'logs'} onClick={() => { setActiveTab('logs'); }} />
+            <TabButton icon={<UserGroupIcon className="h-6 w-6"/>} label="Nhân viên" isActive={activeTab === 'employees'} onClick={() => { setActiveTab('employees'); }} />
+            <TabButton icon={<ClockIcon className="h-6 w-6"/>} label="Ca làm việc" isActive={activeTab === 'shifts'} onClick={() => { setActiveTab('shifts'); }} /> 
+            <TabButton icon={<BuildingOffice2Icon className="h-6 w-6"/>} label="Địa điểm" isActive={activeTab === 'locations'} onClick={() => { setActiveTab('locations'); }} />
+            <TabButton icon={<TagIcon className="h-6 w-6"/>} label="Chức vụ" isActive={activeTab === 'jobTitles'} onClick={() => { setActiveTab('jobTitles'); }} />
+            <TabButton icon={<QrCodeIcon className="h-6 w-6"/>} label="Mã QR" isActive={activeTab === 'qrcode'} onClick={() => setActiveTab('qrcode')} />
           </ul>
           <div className="p-2 border-t dark:border-gray-700">
              <button onClick={onLogout} className="w-full flex items-center gap-3 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
@@ -256,7 +261,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           </div>
         </nav>
         <main className="flex-1 p-6 lg:p-10 flex flex-col overflow-hidden">
-            <div className="flex-shrink-0 flex justify-between items-center mb-6">
+             <div className="flex-shrink-0 flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
                 {getTabTitle(activeTab)}
                 </h2>
@@ -273,8 +278,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                 <span>Tải lại</span>
                 </button>
             </div>
-            <div className="flex-grow overflow-auto pr-2">
-                {renderContent()}
+            <div className="flex-grow overflow-y-auto pr-2 -mr-2">
+                 <div className="mx-auto max-w-7xl">
+                    {renderContent()}
+                </div>
             </div>
         </main>
       </div>
@@ -332,7 +339,7 @@ const TabButton: React.FC<{icon: React.ReactNode, label: string, isActive: boole
       onClick={onClick}
       className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-md transition-colors duration-200 ${
         isActive
-          ? 'bg-primary-100 dark:bg-primary-900/50 text-primary-600 dark:text-primary-300'
+          ? 'bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300 font-bold'
           : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
       }`}
     >
@@ -343,7 +350,7 @@ const TabButton: React.FC<{icon: React.ReactNode, label: string, isActive: boole
 );
 
 const AttendanceLog: React.FC<{records: AttendanceRecord[], onViewImage: (imageUrl: string) => void}> = ({ records, onViewImage }) => (
-  <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+  <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
     <div className="overflow-x-auto">
       <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
         <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400 sticky top-0">
@@ -415,7 +422,8 @@ const EmployeeManagement: React.FC<{
   onAddEmployee: (employeeData: Omit<Employee, 'id' | 'deviceCode'>) => Promise<void>,
   onDeleteEmployee: (id: string) => Promise<void>,
   onEditEmployee: (employee: Employee) => void,
-}> = ({ employees, shifts, locations, jobTitles, onAddEmployee, onDeleteEmployee, onEditEmployee }) => {
+  onImpersonate: (employee: Employee) => void,
+}> = ({ employees, shifts, locations, jobTitles, onAddEmployee, onDeleteEmployee, onEditEmployee, onImpersonate }) => {
   const [newEmployeeName, setNewEmployeeName] = useState('');
   const [newEmployeeUsername, setNewEmployeeUsername] = useState('');
   const [newEmployeePassword, setNewEmployeePassword] = useState('');
@@ -502,6 +510,9 @@ const EmployeeManagement: React.FC<{
                </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-center">
+                <button onClick={() => onImpersonate(employee)} className="p-2 text-gray-600 bg-blue-100 rounded-md hover:bg-blue-200 dark:text-blue-300 dark:bg-blue-800 dark:hover:bg-blue-700 transition-colors" title="Đăng nhập với tư cách nhân viên này">
+                    <EyeIcon className="h-5 w-5" />
+                </button>
                 <button onClick={() => onEditEmployee(employee)} className="p-2 text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 dark:text-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 transition-colors">
                     <PencilIcon className="h-5 w-5" />
                 </button>
@@ -944,22 +955,39 @@ interface PayrollData {
   totalHours: number;
   totalSalary: number;
 }
+type Period = 'week' | 'month' | 'year';
 
 const Payroll: React.FC<{ employees: Employee[], records: AttendanceRecord[], jobTitles: JobTitle[] }> = ({ employees, records, jobTitles }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [period, setPeriod] = useState<Period>('week');
   const [payrollData, setPayrollData] = useState<PayrollData[]>([]);
 
   const jobTitleMap = new Map(jobTitles.map(jt => [jt.id, jt]));
   const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
   
   useEffect(() => {
-    const { weekStart, weekEnd } = getWeekRange(currentDate);
+    let range;
+    switch (period) {
+        case 'month':
+            const { monthStart, monthEnd } = getMonthRange(currentDate);
+            range = { start: monthStart, end: monthEnd };
+            break;
+        case 'year':
+            const { yearStart, yearEnd } = getYearRange(currentDate);
+            range = { start: yearStart, end: yearEnd };
+            break;
+        case 'week':
+        default:
+            const { weekStart, weekEnd } = getWeekRange(currentDate);
+            range = { start: weekStart, end: weekEnd };
+            break;
+    }
 
     const processed = employees.map(employee => {
       const employeeRecords = records.filter(r => 
         r.employeeId === employee.id && 
-        r.timestamp >= weekStart.getTime() && 
-        r.timestamp <= weekEnd.getTime()
+        r.timestamp >= range.start.getTime() && 
+        r.timestamp <= range.end.getTime()
       );
 
       const checkInMap = new Map<string, number>();
@@ -1000,21 +1028,25 @@ const Payroll: React.FC<{ employees: Employee[], records: AttendanceRecord[], jo
     });
 
     setPayrollData(processed);
-  }, [currentDate, employees, records, jobTitles, jobTitleMap]);
+  }, [currentDate, employees, records, jobTitles, jobTitleMap, period]);
 
-   const handlePrevWeek = () => {
+  const handleDateChange = (direction: 'prev' | 'next') => {
     setCurrentDate(prev => {
-      const newDate = new Date(prev);
-      newDate.setDate(prev.getDate() - 7);
-      return newDate;
-    });
-  };
-
-  const handleNextWeek = () => {
-    setCurrentDate(prev => {
-      const newDate = new Date(prev);
-      newDate.setDate(prev.getDate() + 7);
-      return newDate;
+        const newDate = new Date(prev);
+        const amount = direction === 'prev' ? -1 : 1;
+        switch(period) {
+            case 'month':
+                newDate.setMonth(prev.getMonth() + amount);
+                break;
+            case 'year':
+                newDate.setFullYear(prev.getFullYear() + amount);
+                break;
+            case 'week':
+            default:
+                newDate.setDate(prev.getDate() + (amount * 7));
+                break;
+        }
+        return newDate;
     });
   };
 
@@ -1025,8 +1057,8 @@ const Payroll: React.FC<{ employees: Employee[], records: AttendanceRecord[], jo
 
     payrollData.forEach((data) => {
         rows.push([
-            data.employeeName,
-            data.jobTitle,
+            `"${data.employeeName.replace(/"/g, '""')}"`,
+            `"${data.jobTitle.replace(/"/g, '""')}"`,
             data.hourlyRate,
             data.totalHours,
             data.totalSalary
@@ -1037,23 +1069,39 @@ const Payroll: React.FC<{ employees: Employee[], records: AttendanceRecord[], jo
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Bang_luong_tuan_${formatDateForDisplay(weekStart).replace('/', '-')}.csv`);
+    link.setAttribute("download", `Bang_luong_${period}_${formatDateForDisplay(weekStart).replace('/', '-')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
   
-  const { weekStart, weekEnd } = getWeekRange(currentDate);
+  const renderDateHeader = () => {
+     switch (period) {
+        case 'month':
+            return currentDate.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
+        case 'year':
+            return currentDate.getFullYear();
+        case 'week':
+        default:
+             const { weekStart, weekEnd } = getWeekRange(currentDate);
+             return `${formatDateForDisplay(weekStart)} - ${formatDateForDisplay(weekEnd)}`;
+    }
+  }
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-      <div className="flex justify-between items-center mb-4">
-         <div>
-          <div className="flex items-center gap-4 text-gray-500 dark:text-gray-400">
-             <button onClick={handlePrevWeek} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">{'<'}</button>
-             <span>{formatDateForDisplay(weekStart)} - {formatDateForDisplay(weekEnd)}</span>
-             <button onClick={handleNextWeek} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">{'>'}</button>
-          </div>
+      <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
+        <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 p-1 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                <PeriodButton label="Tuần" isActive={period === 'week'} onClick={() => setPeriod('week')} />
+                <PeriodButton label="Tháng" isActive={period === 'month'} onClick={() => setPeriod('month')} />
+                <PeriodButton label="Năm" isActive={period === 'year'} onClick={() => setPeriod('year')} />
+            </div>
+             <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                <button onClick={() => handleDateChange('prev')} className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600">{'<'}</button>
+                <span className="font-semibold text-sm w-32 text-center">{renderDateHeader()}</span>
+                <button onClick={() => handleDateChange('next')} className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600">{'>'}</button>
+             </div>
         </div>
         <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700">
             <DocumentArrowDownIcon className="h-5 w-5" />
@@ -1089,6 +1137,18 @@ const Payroll: React.FC<{ employees: Employee[], records: AttendanceRecord[], jo
   );
 };
 
+const PeriodButton: React.FC<{ label: string, isActive: boolean, onClick: () => void }> = ({ label, isActive, onClick }) => (
+    <button
+        onClick={onClick}
+        className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-colors ${
+            isActive 
+            ? 'bg-white dark:bg-gray-800 text-primary-600 shadow-sm' 
+            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+        }`}
+    >
+        {label}
+    </button>
+);
 
 
 const EditEmployeeModal: React.FC<{
