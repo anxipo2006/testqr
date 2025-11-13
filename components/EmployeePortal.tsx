@@ -5,7 +5,7 @@ import type { Employee, AttendanceRecord, JobTitle, CurrentUser } from '../types
 import { AttendanceStatus } from '../types';
 import { getRecordsForEmployee, getLastRecordForEmployee, getShifts, getLocations, getJobTitles } from '../services/attendanceService';
 import AttendanceScanner from './AttendanceScanner';
-import { formatTimestamp, getWeekRange, getMonthRange, getYearRange, calculateHours } from '../utils/date';
+import { formatTimestamp, getWeekRange, getMonthRange, getYearRange, calculateHours, formatDateForDisplay } from '../utils/date';
 import { LogoutIcon, MapPinIcon, LoadingIcon, CurrencyDollarIcon, CalendarDaysIcon, ArrowUturnLeftIcon } from './icons';
 
 interface EmployeePortalProps {
@@ -30,6 +30,39 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout, imp
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
+
+  const handleDateChange = (direction: 'prev' | 'next') => {
+    setCurrentDate(prev => {
+        const newDate = new Date(prev);
+        const amount = direction === 'prev' ? -1 : 1;
+        switch(period) {
+            case 'month':
+                newDate.setMonth(prev.getMonth() + amount);
+                break;
+            case 'year':
+                newDate.setFullYear(prev.getFullYear() + amount);
+                break;
+            case 'week':
+            default:
+                newDate.setDate(prev.getDate() + (amount * 7));
+                break;
+        }
+        return newDate;
+    });
+  };
+
+  const renderDateHeader = () => {
+     switch (period) {
+        case 'month':
+            return currentDate.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
+        case 'year':
+            return currentDate.getFullYear();
+        case 'week':
+        default:
+             const { weekStart, weekEnd } = getWeekRange(currentDate);
+             return `${formatDateForDisplay(weekStart)} - ${formatDateForDisplay(weekEnd)}`;
+    }
+  }
 
   const loadData = async () => {
     setIsLoading(true);
@@ -140,7 +173,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout, imp
   const nextActionText = lastStatus === AttendanceStatus.CHECK_IN ? 'Check-out' : 'Check-in';
 
   const estimatedSalary = jobTitle ? periodHours * jobTitle.hourlyRate : 0;
-  const periodLabel = period === 'week' ? 'tuần này' : period === 'month' ? 'tháng này' : 'năm nay';
+  const periodLabel = period === 'week' ? 'tuần' : period === 'month' ? 'tháng' : 'năm';
 
   return (
     <div className={`min-h-screen bg-gray-50 dark:bg-gray-900 ${impersonatingAdmin ? 'pt-12' : ''}`}>
@@ -206,7 +239,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout, imp
                         </div>
 
                          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                             <div className="flex justify-between items-center mb-4">
+                             <div className="flex justify-between items-center mb-2">
                                 <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
                                     <CurrencyDollarIcon className="h-6 w-6 text-primary-500"/>
                                     <span>Thông tin lương</span>
@@ -216,6 +249,11 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout, imp
                                     <PeriodButton label="Tháng" isActive={period === 'month'} onClick={() => setPeriod('month')} />
                                     <PeriodButton label="Năm" isActive={period === 'year'} onClick={() => setPeriod('year')} />
                                 </div>
+                             </div>
+                             <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400 mb-4 justify-center">
+                                <button onClick={() => handleDateChange('prev')} className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600">{'<'}</button>
+                                <span className="font-semibold text-sm w-32 text-center">{renderDateHeader()}</span>
+                                <button onClick={() => handleDateChange('next')} className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600">{'>'}</button>
                              </div>
                             <div className="space-y-3 text-gray-700 dark:text-gray-300">
                                 <div className="flex justify-between items-center">
@@ -227,7 +265,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout, imp
                                     <span className="font-semibold">{jobTitle ? `${formatCurrency(jobTitle.hourlyRate)}/giờ` : 'N/A'}</span>
                                 </div>
                                 <div className="flex justify-between items-center border-t dark:border-gray-700 pt-3 mt-3">
-                                    <span className="font-medium">Giờ công {periodLabel}:</span>
+                                    <span className="font-medium">Giờ công ({periodLabel}):</span>
                                     <span className="font-semibold text-lg text-blue-600 dark:text-blue-400">{periodHours} giờ</span>
                                 </div>
                                 <div className="flex justify-between items-center bg-green-50 dark:bg-green-900/50 p-3 rounded-lg">
