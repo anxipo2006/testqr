@@ -6,7 +6,7 @@ import { AttendanceStatus } from '../types';
 import { getRecordsForEmployee, getLastRecordForEmployee, getShifts, getLocations, getJobTitles } from '../services/attendanceService';
 import AttendanceScanner from './AttendanceScanner';
 import { formatTimestamp, getWeekRange, calculateHours } from '../utils/date';
-import { LogoutIcon, MapPinIcon, LoadingIcon, CurrencyDollarIcon, CalendarDaysIcon, ClockIcon } from './icons';
+import { LogoutIcon, MapPinIcon, LoadingIcon, CurrencyDollarIcon } from './icons';
 
 interface EmployeePortalProps {
   employee: Employee;
