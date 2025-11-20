@@ -1,8 +1,8 @@
 
 import { db } from './firebaseConfig';
 
-import { AttendanceStatus } from '../types';
-import type { Employee, AttendanceRecord, Shift, CurrentUser, Location, JobTitle } from '../types';
+import { AttendanceStatus, RequestStatus } from '../types';
+import type { Employee, AttendanceRecord, Shift, CurrentUser, Location, JobTitle, AttendanceRequest } from '../types';
 
 
 // --- Collection References ---
@@ -12,6 +12,7 @@ const shiftsCol = db.collection('shifts');
 const employeesCol = db.collection('employees');
 const recordsCol = db.collection('records');
 const jobTitlesCol = db.collection('jobTitles');
+const requestsCol = db.collection('requests');
 
 
 // --- Geolocation Helpers ---
@@ -431,14 +432,147 @@ export const addAttendanceRecord = async (
   return { ...recordToSave, id: docRef.id } as AttendanceRecord;
 };
 
+// --- Request Management ---
+export const addAttendanceRequest = async (
+  employeeId: string,
+  type: AttendanceStatus,
+  reason: string,
+  evidenceImage: string
+): Promise<AttendanceRequest> => {
+  const employeeSnap = await db.collection('employees').doc(employeeId).get();
+  if (!employeeSnap.exists) throw new Error('Nhân viên không tồn tại.');
+  const employee = { ...employeeSnap.data(), id: employeeSnap.id } as Employee;
+
+  const requestToSave: Omit<AttendanceRequest, 'id'> = {
+    employeeId,
+    employeeName: employee.name,
+    username: employee.username,
+    timestamp: Date.now(),
+    type,
+    reason,
+    evidenceImage,
+    status: RequestStatus.PENDING
+  };
+
+  const docRef = await requestsCol.add(requestToSave);
+  return { ...requestToSave, id: docRef.id } as AttendanceRequest;
+}
+
+export const getAttendanceRequests = async (): Promise<AttendanceRequest[]> => {
+    const q = requestsCol.orderBy('timestamp', 'desc');
+    const snapshot = await q.get();
+    return snapshot.docs.map(doc => ({...doc.data(), id: doc.id} as AttendanceRequest));
+}
+
+export const updateAttendanceRequestStatus = async (requestId: string, status: RequestStatus): Promise<void> => {
+    await requestsCol.doc(requestId).update({ status });
+}
+
+export const processAttendanceRequest = async (request: AttendanceRequest, action: 'approve' | 'reject'): Promise<void> => {
+    try {
+        if (action === 'reject') {
+            await updateAttendanceRequestStatus(request.id, RequestStatus.REJECTED);
+            return;
+        }
+
+        // Approve: Create a manual attendance record
+        const employeeSnap = await db.collection('employees').doc(request.employeeId).get();
+        if (!employeeSnap.exists) throw new Error('Nhân viên không tồn tại.');
+        const employee = { ...employeeSnap.data(), id: employeeSnap.id } as Employee;
+
+        let shiftName: string | undefined;
+        let isLate: boolean = false;
+        let isEarly: boolean = false;
+
+        if (employee.shiftId) {
+            const shiftSnap = await db.collection('shifts').doc(employee.shiftId).get();
+            if (shiftSnap.exists) {
+                const shift = { ...shiftSnap.data(), id: shiftSnap.id } as Shift;
+                shiftName = shift.name;
+                
+                const requestTime = new Date(request.timestamp);
+                const getTimeForReferenceDate = (timeString: string): Date => {
+                    const [hours, minutes] = timeString.split(':').map(Number);
+                    const date = new Date(requestTime);
+                    date.setHours(hours, minutes, 0, 0);
+                    return date;
+                };
+
+                const shiftStartTime = getTimeForReferenceDate(shift.startTime);
+                let shiftEndTime = getTimeForReferenceDate(shift.endTime);
+                if (shiftEndTime <= shiftStartTime) {
+                    shiftEndTime.setDate(shiftEndTime.getDate() + 1);
+                }
+                
+                const gracePeriodMinutes = 5;
+                if (request.type === AttendanceStatus.CHECK_IN) {
+                    const graceTime = new Date(shiftStartTime.getTime() + gracePeriodMinutes * 60000);
+                    isLate = requestTime > graceTime;
+                } else {
+                    isEarly = requestTime < shiftEndTime;
+                }
+            }
+        }
+
+        const recordToSave: Omit<AttendanceRecord, 'id'> = {
+            employeeId: request.employeeId,
+            employeeName: request.employeeName,
+            username: request.username,
+            timestamp: request.timestamp, // Use the request time, not current time
+            status: request.type,
+            isLate,
+            isEarly,
+            shiftName,
+            selfieImage: request.evidenceImage,
+            isManualEntry: true
+        };
+
+        const batch = db.batch();
+        const newRecordRef = recordsCol.doc();
+        batch.set(newRecordRef, recordToSave);
+        const requestRef = requestsCol.doc(request.id);
+        batch.update(requestRef, { status: RequestStatus.APPROVED });
+        
+        await batch.commit();
+    } catch (error: any) {
+        console.error("Process Request Error:", error);
+        // Improve error message for permission issues
+        if (error.code === 'permission-denied') {
+            throw new Error("Lỗi quyền truy cập (permission-denied). Hệ thống chưa được phép ghi dữ liệu chấm công hoặc cập nhật yêu cầu. Vui lòng kiểm tra Firestore Rules.");
+        }
+        throw error;
+    }
+}
+
+
 // --- Data Fetching ---
 export const getInitialData = async () => {
-    const [employees, records, shifts, locations, jobTitles] = await Promise.all([
+    // Capture specific error for requests to show in UI
+    let requestsError: any = null;
+
+    // Fetch requests separately to allow the app to load even if the new collection is restricted
+    // This specifically prevents "Missing or insufficient permissions" from crashing the Admin Dashboard
+    const fetchRequestsSafe = async () => {
+        try {
+            return await getAttendanceRequests();
+        } catch (error) {
+            console.warn("Failed to fetch attendance requests. This may be due to missing permissions or the collection not existing yet.", error);
+            requestsError = error;
+            // Return empty array to allow the rest of the app to function
+            return [] as AttendanceRequest[];
+        }
+    };
+
+    // We wrap the critical data fetches in a Promise.all, but requests is separate
+    // If getEmployees() or getRecords() fails, the app *should* probably fail (or handle it elsewhere)
+    // as those are core to the admin function.
+    const [employees, records, shifts, locations, jobTitles, requests] = await Promise.all([
         getEmployees(),
         getAttendanceRecords(),
         getShifts(),
         getLocations(),
         getJobTitles(),
+        fetchRequestsSafe(),
     ]);
-    return { employees, records, shifts, locations, jobTitles };
+    return { employees, records, shifts, locations, jobTitles, requests, requestsError };
 };

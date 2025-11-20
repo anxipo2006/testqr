@@ -1,3 +1,4 @@
+
 export interface Location {
   id: string;
   name: string;
@@ -53,4 +54,61 @@ export interface AttendanceRecord {
   longitude?: number;
   accuracy?: number;
   selfieImage?: string; // Base64 encoded image
+  isManualEntry?: boolean; // Flag for records created via request approval
+}
+
+export enum RequestStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
+export interface AttendanceRequest {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  username: string;
+  timestamp: number;
+  type: AttendanceStatus; // Requesting to Check-in or Check-out
+  reason: string;
+  evidenceImage: string; // Required photo evidence
+  status: RequestStatus;
+}
+
+// --- F&B / POS Types ---
+
+export interface Product {
+  id: string;
+  name: string;
+  price: number;
+  category: string; // e.g., "Coffee", "Tea", "Cake"
+  imageUrl?: string;
+  isAvailable: boolean;
+}
+
+export interface OrderItem {
+  productId: string;
+  productName: string;
+  price: number;
+  quantity: number;
+  note?: string;
+}
+
+export enum OrderStatus {
+  PENDING = 'PENDING',       // Mới tạo
+  PREPARING = 'PREPARING',   // Đang làm
+  COMPLETED = 'COMPLETED',   // Đã xong
+  CANCELLED = 'CANCELLED'    // Hủy
+}
+
+export interface Order {
+  id: string;
+  timestamp: number;
+  items: OrderItem[];
+  totalAmount: number;
+  status: OrderStatus;
+  paymentMethod: 'CASH' | 'TRANSFER';
+  staffId?: string; // Who created the order
+  staffName?: string;
+  tableNumber?: string; // Optional table tracking
 }
