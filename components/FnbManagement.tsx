@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { getAllProducts, addProduct, updateProduct, deleteProduct, createOrder, getActiveOrders, updateOrderStatus } from '../services/posService';
 import type { Product, Order, OrderItem } from '../types';
 import { OrderStatus } from '../types';
-import { CubeIcon, PencilIcon, ShoppingBagIcon, LoadingIcon, BanknotesIcon, ClockIcon, CheckCircleIcon, XCircleIcon, ArrowPathIcon } from './icons';
+import { CubeIcon, PencilIcon, ShoppingBagIcon, LoadingIcon, BanknotesIcon, XCircleIcon, ArrowPathIcon } from './icons';
 import { formatTimestamp } from '../utils/date';
 
 // --- Sub-components ---
@@ -161,6 +161,9 @@ const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = (
     const [products, setProducts] = useState<Product[]>([]);
     const [cart, setCart] = useState<OrderItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState('All');
+    
+    // Mobile: Cart Drawer State
+    const [isCartOpen, setIsCartOpen] = useState(false);
 
     useEffect(() => {
         const load = async () => {
@@ -185,6 +188,7 @@ const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = (
 
     const removeFromCart = (productId: string) => {
         setCart(prev => prev.filter(item => item.productId !== productId));
+        if(cart.length <= 1) setIsCartOpen(false); // Close drawer if empty
     };
 
     const updateQuantity = (productId: string, delta: number) => {
@@ -200,6 +204,7 @@ const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = (
     };
 
     const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
     const handleCheckout = async () => {
         if (cart.length === 0) return;
@@ -216,90 +221,154 @@ const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = (
                 staffId: currentUser?.id
             });
             setCart([]);
+            setIsCartOpen(false);
             alert("Đơn hàng đã được tạo thành công!");
         } catch (error) {
             alert("Lỗi tạo đơn hàng");
         }
     };
 
+    // Cart Content Component (Reused for Desktop Sidebar and Mobile Drawer)
+    const CartContent = () => (
+        <div className="flex flex-col h-full">
+             <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {cart.length === 0 ? (
+                    <div className="text-center text-gray-500 mt-10 flex flex-col items-center">
+                        <ShoppingBagIcon className="h-12 w-12 text-gray-300 mb-2"/>
+                        <p>Giỏ hàng trống</p>
+                        <p className="text-sm">Chọn món bên trái để thêm</p>
+                    </div>
+                ) : (
+                    cart.map(item => (
+                        <div key={item.productId} className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                            <div className="flex-1">
+                                <p className="font-medium text-sm dark:text-white">{item.productName}</p>
+                                <p className="text-xs text-gray-500">{new Intl.NumberFormat('vi-VN').format(item.price)}</p>
+                            </div>
+                            <div className="flex items-center gap-3 bg-white dark:bg-gray-600 rounded-lg px-2 py-1 shadow-sm">
+                                <button onClick={() => updateQuantity(item.productId, -1)} className="w-6 h-6 flex items-center justify-center text-gray-600 dark:text-gray-200 font-bold text-lg hover:bg-gray-100 dark:hover:bg-gray-500 rounded">-</button>
+                                <span className="w-4 text-center text-sm font-bold dark:text-white">{item.quantity}</span>
+                                <button onClick={() => updateQuantity(item.productId, 1)} className="w-6 h-6 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-lg hover:bg-gray-100 dark:hover:bg-gray-500 rounded">+</button>
+                            </div>
+                            <button onClick={() => removeFromCart(item.productId)} className="ml-3 text-red-500 p-1 hover:bg-red-50 rounded"><XCircleIcon className="h-5 w-5"/></button>
+                        </div>
+                    ))
+                )}
+            </div>
+            <div className="p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+                <div className="flex justify-between mb-4 text-lg font-bold dark:text-white">
+                    <span>Tổng cộng:</span>
+                    <span className="text-primary-600">{new Intl.NumberFormat('vi-VN').format(totalAmount)}đ</span>
+                </div>
+                <button 
+                    onClick={handleCheckout}
+                    disabled={cart.length === 0}
+                    className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex justify-center items-center gap-2 shadow-lg shadow-green-600/30"
+                >
+                    <BanknotesIcon className="h-5 w-5"/> Thanh toán ngay
+                </button>
+            </div>
+        </div>
+    );
+
     return (
-        <div className="flex h-[calc(100vh-100px)] overflow-hidden">
-            {/* Left: Product Grid */}
-            <div className="flex-1 p-4 overflow-y-auto bg-gray-100 dark:bg-gray-900">
-                {/* Category Filter */}
-                <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+        <div className="flex flex-col h-full relative">
+            {/* Category Bar - Scrollable */}
+            <div className="flex-shrink-0 px-2 py-2 bg-white dark:bg-gray-800 border-b dark:border-gray-700 overflow-x-auto whitespace-nowrap no-scrollbar md:px-4">
+                <div className="flex gap-2">
                     {categories.map(cat => (
                         <button
                             key={cat}
                             onClick={() => setSelectedCategory(cat)}
-                            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${selectedCategory === cat ? 'bg-primary-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
+                            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                                selectedCategory === cat 
+                                ? 'bg-primary-600 text-white shadow-md' 
+                                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'
+                            }`}
                         >
                             {cat}
                         </button>
                     ))}
                 </div>
+            </div>
 
-                {/* Products */}
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {filteredProducts.map(p => (
-                        <div 
-                            key={p.id} 
-                            onClick={() => addToCart(p)}
-                            className="bg-white dark:bg-gray-800 rounded-lg shadow cursor-pointer hover:ring-2 ring-primary-500 transition-all"
-                        >
-                            <div className="h-32 bg-gray-200 dark:bg-gray-700">
-                                {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover rounded-t-lg" /> : null}
+            <div className="flex-1 flex overflow-hidden relative">
+                {/* Left: Product Grid */}
+                <div className="flex-1 p-2 md:p-4 overflow-y-auto pb-24 md:pb-4 bg-gray-100 dark:bg-gray-900">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
+                        {filteredProducts.map(p => (
+                            <div 
+                                key={p.id} 
+                                onClick={() => addToCart(p)}
+                                className="bg-white dark:bg-gray-800 rounded-xl shadow-sm cursor-pointer active:scale-95 transition-transform duration-100 overflow-hidden border border-transparent hover:border-primary-500"
+                            >
+                                <div className="h-28 md:h-40 bg-gray-200 dark:bg-gray-700 relative">
+                                    {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" loading="lazy" /> : (
+                                        <div className="flex items-center justify-center h-full text-gray-400"><CubeIcon className="h-10 w-10"/></div>
+                                    )}
+                                    {/* Add Button Overlay */}
+                                    <div className="absolute bottom-2 right-2 bg-white dark:bg-gray-800 rounded-full p-1.5 shadow">
+                                        <span className="text-primary-600 font-bold text-lg leading-none">+</span>
+                                    </div>
+                                </div>
+                                <div className="p-3">
+                                    <p className="font-semibold text-gray-800 dark:text-white text-sm md:text-base line-clamp-2 h-10 md:h-12 leading-tight">{p.name}</p>
+                                    <p className="text-primary-600 font-bold mt-1">{new Intl.NumberFormat('vi-VN').format(p.price)}đ</p>
+                                </div>
                             </div>
-                            <div className="p-3">
-                                <p className="font-bold text-gray-800 dark:text-white truncate">{p.name}</p>
-                                <p className="text-primary-600 font-medium">{new Intl.NumberFormat('vi-VN').format(p.price)}</p>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Right: Desktop Cart Sidebar (Hidden on mobile) */}
+                <div className="hidden md:flex w-96 bg-white dark:bg-gray-800 shadow-xl flex-col border-l dark:border-gray-700 z-10">
+                    <div className="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+                        <h2 className="font-bold text-lg flex items-center gap-2"><ShoppingBagIcon className="h-5 w-5"/> Giỏ hàng</h2>
+                        <p className="text-xs text-gray-500">NV: {currentUser?.name}</p>
+                    </div>
+                    <CartContent />
+                </div>
+            </div>
+            
+            {/* Mobile: Floating Cart Bar */}
+            <div className="md:hidden absolute bottom-4 left-3 right-3 z-20 transition-transform duration-300">
+                 {cart.length > 0 && (
+                    <button
+                        onClick={() => setIsCartOpen(true)}
+                        className="w-full bg-gray-900 dark:bg-gray-700 text-white p-3 rounded-xl shadow-xl flex justify-between items-center border border-gray-700"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="bg-primary-600 text-white rounded-full h-8 w-8 flex items-center justify-center font-bold text-sm shadow-sm border-2 border-gray-900">
+                                {totalItems}
+                            </div>
+                            <div className="text-left">
+                                <p className="text-xs text-gray-400 font-medium">Tổng cộng</p>
+                                <p className="font-bold text-base">{new Intl.NumberFormat('vi-VN').format(totalAmount)}đ</p>
                             </div>
                         </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Right: Cart */}
-            <div className="w-96 bg-white dark:bg-gray-800 shadow-xl flex flex-col border-l dark:border-gray-700">
-                <div className="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
-                    <h2 className="font-bold text-lg flex items-center gap-2"><ShoppingBagIcon className="h-5 w-5"/> Giỏ hàng ({currentUser?.name || 'Admin'})</h2>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {cart.length === 0 ? (
-                        <div className="text-center text-gray-500 mt-10">Giỏ hàng trống</div>
-                    ) : (
-                        cart.map(item => (
-                            <div key={item.productId} className="flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-700/50 rounded">
-                                <div className="flex-1">
-                                    <p className="font-medium text-sm dark:text-white">{item.productName}</p>
-                                    <p className="text-xs text-gray-500">{new Intl.NumberFormat('vi-VN').format(item.price)}</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <button onClick={() => updateQuantity(item.productId, -1)} className="w-6 h-6 bg-gray-200 rounded text-center leading-none hover:bg-gray-300">-</button>
-                                    <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
-                                    <button onClick={() => updateQuantity(item.productId, 1)} className="w-6 h-6 bg-gray-200 rounded text-center leading-none hover:bg-gray-300">+</button>
-                                </div>
-                                <button onClick={() => removeFromCart(item.productId)} className="ml-2 text-red-500"><XCircleIcon className="h-5 w-5"/></button>
-                            </div>
-                        ))
-                    )}
-                </div>
-
-                <div className="p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
-                    <div className="flex justify-between mb-4 text-lg font-bold dark:text-white">
-                        <span>Tổng cộng:</span>
-                        <span className="text-primary-600">{new Intl.NumberFormat('vi-VN').format(totalAmount)}đ</span>
-                    </div>
-                    <button 
-                        onClick={handleCheckout}
-                        disabled={cart.length === 0}
-                        className="w-full py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:bg-gray-400 flex justify-center items-center gap-2"
-                    >
-                        <BanknotesIcon className="h-5 w-5"/> Thanh toán
+                        <div className="flex items-center gap-2 text-sm font-bold bg-white text-gray-900 px-3 py-1.5 rounded-lg">
+                            Xem giỏ
+                        </div>
                     </button>
-                </div>
+                 )}
             </div>
+
+            {/* Mobile: Cart Drawer/Modal */}
+            {isCartOpen && (
+                <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsCartOpen(false)}></div>
+                    <div className="bg-white dark:bg-gray-800 rounded-t-2xl h-[85vh] flex flex-col shadow-2xl relative animate-in slide-in-from-bottom duration-300">
+                        <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-700 rounded-t-2xl">
+                             <div>
+                                <h2 className="font-bold text-lg flex items-center gap-2"><ShoppingBagIcon className="h-5 w-5"/> Giỏ hàng</h2>
+                                <p className="text-xs text-gray-500">NV: {currentUser?.name}</p>
+                             </div>
+                             <button onClick={() => setIsCartOpen(false)} className="p-2 bg-gray-200 dark:bg-gray-600 rounded-full hover:bg-gray-300"><XCircleIcon className="h-6 w-6 text-gray-600 dark:text-gray-200"/></button>
+                        </div>
+                        <CartContent />
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -328,41 +397,55 @@ const OrderList: React.FC = () => {
     };
 
     return (
-        <div className="p-6">
+        <div className="p-4 md:p-6">
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Đơn hàng hiện tại (Bếp/Bar)</h2>
+                <h2 className="text-xl md:text-2xl font-bold text-gray-800 dark:text-white">Đơn hàng (Bếp/Bar)</h2>
                 <button onClick={loadOrders} className="text-primary-600 hover:underline"><ArrowPathIcon className="h-5 w-5"/></button>
             </div>
 
             {isLoading ? <LoadingIcon className="h-8 w-8 mx-auto" /> : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {orders.length === 0 && <p className="col-span-3 text-center text-gray-500">Không có đơn hàng nào đang xử lý.</p>}
+                    {orders.length === 0 && (
+                        <div className="col-span-3 text-center py-12 bg-gray-50 dark:bg-gray-700/50 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-600">
+                            <p className="text-gray-500 font-medium">Không có đơn hàng nào đang xử lý.</p>
+                        </div>
+                    )}
                     
                     {orders.map(order => (
-                        <div key={order.id} className="bg-white dark:bg-gray-800 rounded-lg shadow border-l-4 border-yellow-500 p-4">
-                            <div className="flex justify-between mb-2">
-                                <span className="font-mono text-xs text-gray-500">#{order.id.slice(-4)}</span>
-                                <span className="text-xs text-gray-500">
-                                    {formatTimestamp(order.timestamp)}
-                                    <br/>
-                                    NV: {order.staffName || 'N/A'}
-                                </span>
+                        <div key={order.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md border-l-4 border-yellow-500 p-4 relative">
+                            <div className="flex justify-between mb-3 pb-2 border-b border-dashed border-gray-100 dark:border-gray-700">
+                                <div className="flex flex-col">
+                                    <span className="font-mono font-bold text-lg dark:text-white">#{order.id.slice(-4).toUpperCase()}</span>
+                                    <span className="text-xs text-gray-500">{formatTimestamp(order.timestamp)}</span>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-xs font-bold bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-gray-600 dark:text-gray-300">
+                                        NV: {order.staffName || 'N/A'}
+                                    </span>
+                                </div>
                             </div>
-                            <div className="mb-4">
+                            <div className="mb-4 space-y-2 max-h-40 overflow-y-auto">
                                 {order.items.map((item, idx) => (
-                                    <div key={idx} className="flex justify-between py-1 border-b border-dashed border-gray-200 dark:border-gray-700 last:border-0">
-                                        <span className="font-bold dark:text-gray-200">{item.quantity}x {item.productName}</span>
+                                    <div key={idx} className="flex justify-between items-center">
+                                        <span className="font-bold text-gray-800 dark:text-gray-200 text-lg">{item.quantity}x</span>
+                                        <span className="flex-1 ml-3 text-gray-700 dark:text-gray-300">{item.productName}</span>
                                     </div>
                                 ))}
                             </div>
-                            <div className="flex gap-2 mt-4">
+                            <div className="grid grid-cols-2 gap-2 mt-4 pt-2 border-t dark:border-gray-700">
                                 {order.status === OrderStatus.PENDING && (
-                                    <button onClick={() => handleStatusChange(order.id, OrderStatus.PREPARING)} className="flex-1 py-2 bg-blue-600 text-white rounded text-sm">Bắt đầu làm</button>
+                                    <button onClick={() => handleStatusChange(order.id, OrderStatus.PREPARING)} className="col-span-2 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-sm hover:bg-blue-700">
+                                        Nhận món / Làm
+                                    </button>
                                 )}
                                 {order.status === OrderStatus.PREPARING && (
-                                    <button onClick={() => handleStatusChange(order.id, OrderStatus.COMPLETED)} className="flex-1 py-2 bg-green-600 text-white rounded text-sm">Hoàn thành</button>
+                                    <button onClick={() => handleStatusChange(order.id, OrderStatus.COMPLETED)} className="col-span-2 py-2.5 bg-green-600 text-white rounded-lg text-sm font-bold shadow-sm hover:bg-green-700">
+                                        Hoàn thành
+                                    </button>
                                 )}
-                                <button onClick={() => handleStatusChange(order.id, OrderStatus.CANCELLED)} className="px-3 py-2 bg-gray-200 text-gray-700 rounded text-sm">Hủy</button>
+                                <button onClick={() => handleStatusChange(order.id, OrderStatus.CANCELLED)} className="col-span-2 mt-1 py-2 bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-200">
+                                    Hủy đơn
+                                </button>
                             </div>
                         </div>
                     ))}

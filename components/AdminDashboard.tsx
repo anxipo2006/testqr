@@ -19,8 +19,8 @@ import {
 import type { Employee, AttendanceRecord, Shift, Location, JobTitle, AttendanceRequest } from '../types';
 import { AttendanceStatus, RequestStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
-import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, DocumentArrowDownIcon, PencilIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon, CurrencyDollarIcon, TagIcon, EyeIcon, InboxStackIcon, ExclamationTriangleIcon, CubeIcon, ClipboardDocumentListIcon, CheckCircleIcon } from './icons';
-import { formatTimestamp, formatDateForDisplay, getWeekRange, getMonthRange, getYearRange, formatTimeToHHMM, calculateHours } from '../utils/date';
+import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon, CurrencyDollarIcon, TagIcon, EyeIcon, InboxStackIcon, ExclamationTriangleIcon, CubeIcon, ClipboardDocumentListIcon, CheckCircleIcon } from './icons';
+import { formatTimestamp, formatDateForDisplay, getWeekRange, getMonthRange, formatTimeToHHMM, calculateHours } from '../utils/date';
 import { MenuManager, OrderList } from './FnbManagement';
 
 
