@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { getAllProducts, addProduct, updateProduct, deleteProduct, createOrder, getActiveOrders, updateOrderStatus } from '../services/posService';
 import type { Product, Order, OrderItem } from '../types';
 import { OrderStatus } from '../types';
-import { CubeIcon, PencilIcon, ShoppingBagIcon, LoadingIcon, BanknotesIcon, XCircleIcon, ArrowPathIcon } from './icons';
+import { CubeIcon, PencilIcon, ShoppingBagIcon, LoadingIcon, BanknotesIcon, XCircleIcon, ArrowPathIcon, PrinterIcon, CheckCircleIcon } from './icons';
 import { formatTimestamp } from '../utils/date';
 
 // --- Sub-components ---
@@ -156,11 +156,149 @@ const MenuManager: React.FC = () => {
     );
 };
 
+// --- New Component: Dual Print Modal (Kitchen + Receipt) ---
+const DualPrintModal: React.FC<{ order: Order; onClose: () => void }> = ({ order, onClose }) => {
+    
+    const handlePrint = () => {
+        window.print();
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <style>
+                {`
+                    @media print {
+                        body * { visibility: hidden; }
+                        #printable-area, #printable-area * { visibility: visible; }
+                        #printable-area { 
+                            position: absolute; 
+                            left: 0; 
+                            top: 0; 
+                            width: 100%; 
+                            color: black;
+                            background: white;
+                        }
+                        .no-print { display: none; }
+                    }
+                `}
+            </style>
+
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]">
+                {/* Header Actions */}
+                <div className="p-4 border-b flex justify-between items-center no-print">
+                    <h3 className="text-lg font-bold text-green-600 flex items-center gap-2">
+                        <CheckCircleIcon className="h-6 w-6" />
+                        Thanh toán thành công!
+                    </h3>
+                    <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+                        <XCircleIcon className="h-6 w-6" />
+                    </button>
+                </div>
+
+                {/* Scrollable Preview Area */}
+                <div className="overflow-y-auto p-6 bg-gray-100 flex justify-center">
+                    <div id="printable-area" className="bg-white p-4 w-[80mm] shadow-sm text-black font-mono text-sm">
+                        
+                        {/* --- PHIẾU BẾP (KITCHEN TICKET) --- */}
+                        <div className="mb-8">
+                            <div className="text-center mb-4">
+                                <h2 className="text-2xl font-extrabold uppercase border-2 border-black inline-block px-2 py-1">PHIẾU BẾP</h2>
+                                <div className="mt-2 text-lg font-bold">#{order.id.slice(-4).toUpperCase()}</div>
+                                <div className="text-xs">{formatTimestamp(order.timestamp)}</div>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                {order.items.map((item, idx) => (
+                                    <div key={idx} className="border-b border-dashed border-gray-300 pb-2">
+                                        <div className="flex items-start">
+                                            <span className="text-xl font-extrabold mr-2 w-8">{item.quantity}</span>
+                                            <div className="flex-1">
+                                                <span className="text-lg font-bold block leading-tight">{item.productName}</span>
+                                                {item.note && <span className="text-sm italic mt-1 block">Note: {item.note}</span>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* --- DIVIDER (CUT LINE) --- */}
+                        <div className="border-t-2 border-dashed border-black my-6 relative">
+                            <span className="absolute left-0 -top-3">✂</span>
+                            <span className="absolute right-0 -top-3">✂</span>
+                        </div>
+
+                        {/* --- HÓA ĐƠN (CUSTOMER RECEIPT) --- */}
+                        <div>
+                            <div className="text-center mb-4">
+                                <h3 className="text-xl font-bold uppercase">HÓA ĐƠN</h3>
+                                <p className="text-xs">Mã đơn: #{order.id.slice(-4).toUpperCase()}</p>
+                                <p className="text-xs">Ngày: {formatTimestamp(order.timestamp)}</p>
+                                <p className="text-xs">Thu ngân: {order.staffName || 'NV'}</p>
+                            </div>
+
+                            <div className="border-t border-b border-black py-2 mb-2">
+                                {order.items.map((item, idx) => (
+                                    <div key={idx} className="flex justify-between py-1">
+                                        <div className="flex-1">
+                                            <span className="font-bold">{item.productName}</span>
+                                            <div className="text-xs text-gray-600">
+                                                {item.quantity} x {new Intl.NumberFormat('vi-VN').format(item.price)}
+                                            </div>
+                                        </div>
+                                        <span className="font-medium">
+                                            {new Intl.NumberFormat('vi-VN').format(item.price * item.quantity)}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="flex justify-between items-center text-lg font-bold mt-2">
+                                <span>TỔNG CỘNG</span>
+                                <span>{new Intl.NumberFormat('vi-VN').format(order.totalAmount)}đ</span>
+                            </div>
+                            
+                            <div className="mt-6 text-center text-xs italic">
+                                <p>Cảm ơn quý khách & Hẹn gặp lại!</p>
+                                <p>Wifi: FreeWifi - Pass: 12345678</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                {/* Footer Actions */}
+                <div className="p-4 border-t bg-white no-print">
+                    <div className="flex gap-3">
+                        <button 
+                            onClick={handlePrint}
+                            className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg shadow hover:bg-blue-700 flex items-center justify-center gap-2"
+                        >
+                            <PrinterIcon className="h-5 w-5" />
+                            In Phiếu (2 liên)
+                        </button>
+                        <button 
+                            onClick={onClose}
+                            className="flex-1 py-3 bg-gray-200 text-gray-800 font-medium rounded-lg hover:bg-gray-300"
+                        >
+                            Đóng / Tiếp tục bán
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 // 2. POS Terminal
 const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = ({ currentUser }) => {
     const [products, setProducts] = useState<Product[]>([]);
     const [cart, setCart] = useState<OrderItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState('All');
+    
+    // State for Print Modal
+    const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
     
     // Mobile: Cart Drawer State
     const [isCartOpen, setIsCartOpen] = useState(false);
@@ -211,18 +349,23 @@ const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = (
         if (!confirm(`Xác nhận thanh toán ${new Intl.NumberFormat('vi-VN').format(totalAmount)}đ?`)) return;
 
         try {
-            await createOrder({
+            const newOrder = await createOrder({
                 timestamp: Date.now(),
                 items: cart,
                 totalAmount,
-                status: OrderStatus.PENDING,
+                status: OrderStatus.PENDING, // Vẫn tạo là Pending để Bếp theo dõi, nhưng đã in phiếu rồi
                 paymentMethod: 'CASH',
                 staffName: currentUser?.name || 'Admin',
                 staffId: currentUser?.id
             });
+            
+            // Clear cart immediately for next customer
             setCart([]);
             setIsCartOpen(false);
-            alert("Đơn hàng đã được tạo thành công!");
+            
+            // Open Print Modal with the newly created order
+            setCreatedOrder(newOrder);
+
         } catch (error) {
             alert("Lỗi tạo đơn hàng");
         }
@@ -369,6 +512,11 @@ const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = (
                     </div>
                 </div>
             )}
+            
+            {/* Dual Print Modal */}
+            {createdOrder && (
+                <DualPrintModal order={createdOrder} onClose={() => setCreatedOrder(null)} />
+            )}
         </div>
     );
 };
@@ -399,7 +547,7 @@ const OrderList: React.FC = () => {
     return (
         <div className="p-4 md:p-6">
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl md:text-2xl font-bold text-gray-800 dark:text-white">Đơn hàng (Bếp/Bar)</h2>
+                <h2 className="text-xl md:text-2xl font-bold text-gray-800 dark:text-white">Màn hình Bếp (Monitor)</h2>
                 <button onClick={loadOrders} className="text-primary-600 hover:underline"><ArrowPathIcon className="h-5 w-5"/></button>
             </div>
 
@@ -435,12 +583,12 @@ const OrderList: React.FC = () => {
                             <div className="grid grid-cols-2 gap-2 mt-4 pt-2 border-t dark:border-gray-700">
                                 {order.status === OrderStatus.PENDING && (
                                     <button onClick={() => handleStatusChange(order.id, OrderStatus.PREPARING)} className="col-span-2 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-sm hover:bg-blue-700">
-                                        Nhận món / Làm
+                                        Bắt đầu làm
                                     </button>
                                 )}
                                 {order.status === OrderStatus.PREPARING && (
                                     <button onClick={() => handleStatusChange(order.id, OrderStatus.COMPLETED)} className="col-span-2 py-2.5 bg-green-600 text-white rounded-lg text-sm font-bold shadow-sm hover:bg-green-700">
-                                        Hoàn thành
+                                        Đã xong
                                     </button>
                                 )}
                                 <button onClick={() => handleStatusChange(order.id, OrderStatus.CANCELLED)} className="col-span-2 mt-1 py-2 bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-200">
