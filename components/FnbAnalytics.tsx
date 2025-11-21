@@ -3,7 +3,7 @@ import { getAllOrdersHistory } from '../services/posService';
 import type { Order } from '../types';
 import { OrderStatus } from '../types';
 import { formatTimestamp } from '../utils/date';
-import { LoadingIcon, PrinterIcon, BanknotesIcon, ChartBarIcon, ClipboardDocumentListIcon, ArrowPathIcon, CalendarDaysIcon, TagIcon, ClockIcon, UserGroupIcon, CurrencyDollarIcon } from './icons';
+import { LoadingIcon, PrinterIcon, BanknotesIcon, ChartBarIcon, ClipboardDocumentListIcon, ArrowPathIcon, TagIcon, UserGroupIcon } from './icons';
 
 // --- COLORS ---
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
@@ -75,7 +75,6 @@ const AreaChart = ({ data, labels, color = "#3b82f6", height = 200 }: { data: nu
 
 const DonutChart = ({ data }: { data: { label: string, value: number, color: string }[] }) => {
     const total = data.reduce((sum, item) => sum + item.value, 0);
-    let cumulativePercent = 0;
 
     if (total === 0) return <div className="h-48 flex items-center justify-center text-gray-400 text-sm">Chưa có dữ liệu</div>;
 
