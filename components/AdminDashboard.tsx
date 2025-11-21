@@ -19,12 +19,13 @@ import {
 import type { Employee, AttendanceRecord, Shift, Location, JobTitle, AttendanceRequest } from '../types';
 import { AttendanceStatus, RequestStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
-import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon, CurrencyDollarIcon, TagIcon, EyeIcon, InboxStackIcon, ExclamationTriangleIcon, CubeIcon, ClipboardDocumentListIcon, CheckCircleIcon } from './icons';
+import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon, CurrencyDollarIcon, TagIcon, EyeIcon, InboxStackIcon, ExclamationTriangleIcon, CubeIcon, ClipboardDocumentListIcon, CheckCircleIcon, ChartBarIcon, ReceiptPercentIcon } from './icons';
 import { formatTimestamp, formatDateForDisplay, getWeekRange, getMonthRange, formatTimeToHHMM, calculateHours } from '../utils/date';
 import { MenuManager, OrderList } from './FnbManagement';
+import { RevenueReport, InvoiceManagement } from './FnbAnalytics';
 
 
-type Tab = 'timesheet' | 'logs' | 'employees' | 'shifts' | 'locations' | 'jobTitles' | 'payroll' | 'qrcode' | 'requests' | 'menu' | 'orders';
+type Tab = 'timesheet' | 'logs' | 'employees' | 'shifts' | 'locations' | 'jobTitles' | 'payroll' | 'qrcode' | 'requests' | 'menu' | 'orders' | 'invoices' | 'reports';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -195,6 +196,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate
       case 'requests': return 'Yêu cầu Hỗ trợ';
       case 'menu': return 'Quản lý Thực đơn';
       case 'orders': return 'Bếp / Đơn hàng';
+      case 'invoices': return 'Hóa đơn';
+      case 'reports': return 'Báo cáo doanh thu';
       default: return 'Bảng điều khiển';
     }
   };
@@ -202,7 +205,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate
   const pendingRequestsCount = requests.filter(r => r.status === RequestStatus.PENDING).length;
 
   const renderContent = () => {
-    if (isLoading && !['menu', 'orders'].includes(activeTab)) {
+    if (isLoading && !['menu', 'orders', 'invoices', 'reports'].includes(activeTab)) {
         return (
             <div className="flex items-center justify-center h-full">
                 <LoadingIcon className="h-10 w-10 text-primary-500" />
@@ -271,6 +274,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate
         return <MenuManager />;
       case 'orders':
         return <OrderList />;
+      case 'invoices':
+        return <InvoiceManagement />;
+      case 'reports':
+        return <RevenueReport />;
       default:
         return null;
     }
@@ -292,6 +299,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate
             <div className="pt-2 pb-1 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider dark:text-gray-400">
                 Quản lý F&B
             </div>
+            <TabButton icon={<ChartBarIcon className="h-5 w-5"/>} label="Báo cáo" isActive={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
+            <TabButton icon={<ReceiptPercentIcon className="h-5 w-5"/>} label="Hóa đơn" isActive={activeTab === 'invoices'} onClick={() => setActiveTab('invoices')} />
             <TabButton icon={<ClipboardDocumentListIcon className="h-5 w-5"/>} label="Bếp / Đơn hàng" isActive={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
             <TabButton icon={<CubeIcon className="h-5 w-5"/>} label="Thực đơn" isActive={activeTab === 'menu'} onClick={() => setActiveTab('menu')} />
 
@@ -331,7 +340,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate
                 <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
                 {getTabTitle(activeTab)}
                 </h2>
-                {!['menu', 'orders'].includes(activeTab) && (
+                {!['menu', 'orders', 'invoices', 'reports'].includes(activeTab) && (
                     <button
                     onClick={loadData}
                     disabled={isLoading}

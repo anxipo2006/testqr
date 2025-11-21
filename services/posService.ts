@@ -58,3 +58,8 @@ export const getActiveOrders = async (): Promise<Order[]> => {
 export const updateOrderStatus = async (id: string, status: OrderStatus): Promise<void> => {
     await ordersCol.doc(id).update({ status });
 };
+
+export const getAllOrdersHistory = async (): Promise<Order[]> => {
+    const snapshot = await ordersCol.orderBy('timestamp', 'desc').limit(500).get();
+    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
+}
