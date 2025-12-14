@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { Employee, AttendanceRecord, Location } from '../types';
 import { AttendanceStatus } from '../types';
 import { addAttendanceRecord, getLastRecordForEmployee, getLocationById, addAttendanceRequest } from '../services/attendanceService';
-import { matchFace, detectFace } from '../services/faceService';
+import { matchFace, detectFace, resizeResults, drawFaceBox } from '../services/faceService';
 import QRScanner from './QRScanner';
 import { CheckCircleIcon, XCircleIcon, QrCodeIcon, LoadingIcon, CameraIcon, ExclamationTriangleIcon } from './icons';
 import { formatTimestamp } from '../utils/date';
@@ -23,14 +23,18 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   const [nextAction, setNextAction] = useState<AttendanceStatus>(AttendanceStatus.CHECK_IN);
   
   const [scannedLocation, setScannedLocation] = useState<Location | null>(null);
-  const [selfieData, setSelfieData] = useState<string | null>(null); // Captured image for display/storage
+  const [selfieData, setSelfieData] = useState<string | null>(null);
 
   // Reporting State
   const [reportReason, setReportReason] = useState('');
   
+  // Real-time Detection State
+  const [showManualCapture, setShowManualCapture] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const detectionIntervalRef = useRef<any>(null);
+  const isProcessingRef = useRef(false); // Ref to prevent concurrent API calls in loop
 
 
   useEffect(() => {
@@ -41,20 +45,37 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
     determineNextAction();
   }, [employee.id, scanState]); 
 
+  // --- CAMERA MANAGEMENT ---
+
   const startCamera = async () => {
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+              facingMode: 'user',
+              width: { ideal: 640 }, // Prefer standard resolution for speed
+              height: { ideal: 480 }
+          } 
+      });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // Wait for video to load metadata to start detection loop
+        videoRef.current.onloadedmetadata = () => {
+            if (scanState === 'verifyingFace' && !selfieData) {
+                videoRef.current?.play().catch(e => console.error("Play error", e));
+                startRealTimeDetection();
+                // Show manual button after 10 seconds if struggle
+                setTimeout(() => setShowManualCapture(true), 10000);
+            }
+        };
       }
       streamRef.current = stream;
     } catch (err) {
       console.error("Error accessing camera:", err);
       if (scanState === 'verifyingFace' || scanState === 'reporting') {
-           showResult('error', undefined, "Không thể truy cập camera. Vui lòng cấp quyền trong cài đặt trình duyệt.");
+           showResult('error', undefined, "Không thể truy cập camera. Vui lòng cấp quyền và tải lại trang.");
       }
     }
   };
@@ -63,6 +84,10 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
+    }
+    if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
+        detectionIntervalRef.current = null;
     }
   };
 
@@ -78,6 +103,77 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   }, [scanState, selfieData]);
 
 
+  // --- REAL-TIME DETECTION LOOP ---
+
+  const startRealTimeDetection = () => {
+      if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current);
+
+      // Check every 500ms (2 FPS) to save battery/CPU
+      detectionIntervalRef.current = setInterval(async () => {
+          if (!videoRef.current || !canvasRef.current || isProcessingRef.current || !scannedLocation) return;
+          
+          // Only auto-verify if employee has Face ID. If just Selfie required, user must click capture.
+          if (!employee.faceDescriptor) return;
+
+          try {
+              // Ensure video is ready
+              if (videoRef.current.readyState !== 4) return;
+
+              const detection = await detectFace(videoRef.current);
+              
+              // Double check refs after async call
+              if (!videoRef.current || !canvasRef.current) return;
+
+              const canvas = canvasRef.current;
+              const displaySize = { width: videoRef.current.videoWidth, height: videoRef.current.videoHeight };
+              
+              // Match canvas size to video
+              if (canvas.width !== displaySize.width || canvas.height !== displaySize.height) {
+                  canvas.width = displaySize.width;
+                  canvas.height = displaySize.height;
+              }
+
+              if (detection) {
+                  // Resize detection box to fit display
+                  const resizedDetections = resizeResults(detection, displaySize);
+                  
+                  // Compare Face
+                  const matchResult = await matchFace(detection.descriptor, employee.faceDescriptor);
+                  
+                  // Draw Visual Feedback
+                  drawFaceBox(canvas, resizedDetections, matchResult.isMatch);
+
+                  if (matchResult.isMatch) {
+                      // STOP EVERYTHING AND SUBMIT
+                      isProcessingRef.current = true;
+                      if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current);
+                      
+                      // Capture the frame as proof
+                      const image = captureImage();
+                      
+                      setProcessingMessage('Đã nhận diện! Đang chấm công...');
+                      setScanState('processing');
+                      
+                      // Small delay to let user see the green box
+                      setTimeout(() => {
+                          processAttendance(scannedLocation, image || undefined);
+                      }, 500);
+                  }
+              } else {
+                  // Clear canvas if no face
+                  const ctx = canvas.getContext('2d');
+                  ctx?.clearRect(0, 0, canvas.width, canvas.height);
+              }
+
+          } catch (e) {
+              console.error("Detection loop error", e);
+          }
+      }, 500); 
+  };
+
+
+  // --- HELPERS ---
+
   const nextActionText = nextAction === AttendanceStatus.CHECK_IN ? 'Check-in' : 'Check-out';
 
   const showResult = (state: 'error' | 'success', record?: AttendanceRecord, message?: string) => {
@@ -91,6 +187,10 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
     if (state === 'success' && message) {
          setProcessingMessage(message); 
     }
+    // Cleanup
+    stopCamera();
+    isProcessingRef.current = false;
+    
     setTimeout(() => {
       setScanState('idle');
       setErrorMessage('');
@@ -99,6 +199,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
       setScannedLocation(null);
       setReportReason('');
       setProcessingMessage('');
+      setShowManualCapture(false);
     }, 5000); 
   };
   
@@ -124,7 +225,6 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
         
         setProcessingMessage(`Đang xác thực ${nextActionText}...`);
         
-        // OPTIMIZED: Pass employee and location objects directly
         const newRecord = await addAttendanceRecord(employee, location, nextAction, coords, selfie);
 
         await onScanComplete();
@@ -143,6 +243,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
         }
     } finally {
         setProcessingMessage('');
+        isProcessingRef.current = false;
     }
   }
 
@@ -155,15 +256,15 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
         
         setScannedLocation(location);
 
-        // Always require Face Check if stored, otherwise Fallback to simple Selfie if required by Location
         if (employee.faceDescriptor) {
-             setProcessingMessage('Vui lòng xác thực khuôn mặt...');
+             setProcessingMessage('Đang mở camera nhận diện...');
              setScanState('verifyingFace');
+             setShowManualCapture(false);
         } else if (location.requireSelfie) {
              setProcessingMessage('Địa điểm yêu cầu chụp ảnh...');
-             setScanState('verifyingFace'); // Reuse UI for selfie
+             setScanState('verifyingFace');
+             setShowManualCapture(true); // Selfie always needs manual button
         } else {
-            // No face ID and no selfie req -> Go straight
             await processAttendance(location);
         }
 
@@ -181,12 +282,19 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
     setSelfieData(null);
     setScannedLocation(null);
     setReportReason('');
+    setShowManualCapture(false);
+    stopCamera();
+    isProcessingRef.current = false;
   }
 
   const captureImage = (): string | null => {
-      if (videoRef.current && canvasRef.current) {
+      if (videoRef.current) {
+        // Create a temp canvas if canvasRef is occupied by drawing
         const video = videoRef.current;
-        const canvas = canvasRef.current;
+        // Verify video dimensions
+        if (video.videoWidth === 0 || video.videoHeight === 0) return null;
+
+        const canvas = document.createElement('canvas');
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         const context = canvas.getContext('2d');
@@ -200,46 +308,47 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
     return null;
   }
 
-  const handleVerifyFace = async () => {
-      if (!scannedLocation) return;
-      if (!videoRef.current) return;
+  // Fallback for manual click (Selfie mode or FaceID fails)
+  const handleManualCapture = async () => {
+      if (!scannedLocation || isProcessingRef.current) return;
+      isProcessingRef.current = true;
+      if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current);
       
       const image = captureImage();
-      if (!image) return;
+      if (!image) {
+          isProcessingRef.current = false;
+          return;
+      }
 
-      // Visual feedback
       setSelfieData(image); 
       setScanState('processing');
-      setProcessingMessage('Đang phân tích khuôn mặt...');
+      setProcessingMessage('Đang xử lý...');
 
-      // Allow UI to update before blocking with heavy calculation
-      setTimeout(async () => {
-          try {
-              // If employee has Face ID registered, verify it
-              if (employee.faceDescriptor) {
-                  const detection = await detectFace(videoRef.current!); // Use ! because we checked videoRef.current above, but inside setTimeout TS loses context
-                  if (!detection) {
-                      throw new Error("Không tìm thấy khuôn mặt. Vui lòng thử lại.");
-                  }
-                  const matchResult = await matchFace(detection.descriptor, employee.faceDescriptor);
-                  
-                  if (!matchResult.isMatch) {
-                       throw new Error("Khuôn mặt không khớp! Vui lòng thử lại hoặc liên hệ quản trị viên.");
-                  }
-                  
-                  setProcessingMessage('Xác thực thành công! Đang lưu...');
-                  // No need to wait for state update, call directly
-                  await processAttendance(scannedLocation, image);
-              } else {
-                  // Just a selfie requirement, no verification
-                  await processAttendance(scannedLocation, image);
+      try {
+          // If employee has Face ID registered, verify it ONE LAST TIME manually
+          if (employee.faceDescriptor) {
+              setProcessingMessage('Đang phân tích kỹ khuôn mặt...');
+              const detection = await detectFace(videoRef.current!); 
+              if (!detection) {
+                  throw new Error("Không tìm thấy khuôn mặt. Hãy thử lại nơi đủ sáng.");
               }
-          } catch (e: any) {
-              setSelfieData(null); 
-              setScanState('verifyingFace'); 
-              alert(e.message); 
+              const matchResult = await matchFace(detection.descriptor, employee.faceDescriptor);
+              
+              if (!matchResult.isMatch) {
+                   throw new Error("Khuôn mặt không khớp.");
+              }
+              await processAttendance(scannedLocation, image);
+          } else {
+              // Just a selfie requirement
+              await processAttendance(scannedLocation, image);
           }
-      }, 50);
+      } catch (e: any) {
+          setSelfieData(null); 
+          setScanState('verifyingFace'); 
+          alert(e.message); 
+          isProcessingRef.current = false;
+          startRealTimeDetection(); // Restart loop
+      }
   }
 
   // --- REPORTING LOGIC ---
@@ -288,7 +397,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
       <div className="w-full">
         <button
             onClick={() => setScanState('scanning')}
-            className="w-full px-6 py-4 text-lg font-bold text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-transform transform hover:scale-105 flex items-center justify-center gap-3"
+            className="w-full px-6 py-4 text-lg font-bold text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-transform transform hover:scale-105 flex items-center justify-center gap-3 shadow-lg shadow-primary-500/30"
         >
             <QrCodeIcon className="h-7 w-7" />
             <span>Quét mã QR để {nextActionText}</span>
@@ -305,7 +414,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
             <div className="rounded-lg overflow-hidden">
                 <QRScanner onScanSuccess={handleScanSuccess} onScanError={handleScanError} />
             </div>
-            <button onClick={handleCancel} className="mt-4 w-full px-4 py-2 bg-gray-200 text-gray-800 rounded-md">Hủy</button>
+            <button onClick={handleCancel} className="mt-4 w-full px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Hủy</button>
              <StartReportingButton />
         </div>
     );
@@ -314,25 +423,29 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   if (scanState === 'verifyingFace') {
     const hasFaceId = !!employee.faceDescriptor;
     return (
-        <div className="border border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center">
+        <div className="border border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center relative">
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                {hasFaceId ? 'Xác thực khuôn mặt' : 'Chụp ảnh xác thực'}
+                {hasFaceId ? 'Đang nhận diện khuôn mặt...' : 'Chụp ảnh xác thực'}
             </h3>
             <p className="text-sm text-gray-500 mb-4">
-                {hasFaceId ? 'Giữ khuôn mặt ở giữa khung hình để hệ thống nhận diện.' : 'Vui lòng chụp ảnh selfie.'}
+                {hasFaceId ? 'Giữ khuôn mặt trong khung hình. Hệ thống sẽ tự động chụp.' : 'Vui lòng chụp ảnh selfie.'}
             </p>
 
-            <div className="relative w-full aspect-square bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden mb-4">
-                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]"></video>
-                 {hasFaceId && <div className="absolute inset-0 border-2 border-dashed border-green-400 opacity-60 m-12 rounded-full animate-pulse"></div>}
-                 <canvas ref={canvasRef} className="hidden"></canvas>
+            <div className="relative w-full aspect-square bg-black rounded-lg overflow-hidden mb-4 shadow-inner">
+                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1] relative z-10"></video>
+                 {/* Canvas for bounding box overlay */}
+                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full transform scale-x-[-1] z-20"></canvas>
             </div>
             
-            <button onClick={handleVerifyFace} className="w-full px-6 py-3 text-lg font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-3">
-                <CameraIcon className="h-7 w-7"/>
-                {hasFaceId ? 'Quét & Chấm công' : 'Chụp & Chấm công'}
-            </button>
-             <button onClick={handleCancel} className="mt-4 w-full text-sm text-gray-600 hover:underline">Hủy</button>
+            {/* Manual Button appears immediately for Selfie mode, or after timeout for FaceID mode */}
+            {(showManualCapture || !hasFaceId) && (
+                 <button onClick={handleManualCapture} className="w-full px-6 py-3 text-lg font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-3 shadow-lg animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <CameraIcon className="h-7 w-7"/>
+                    {hasFaceId ? 'Không được? Chụp thủ công' : 'Chụp & Chấm công'}
+                </button>
+            )}
+
+             <button onClick={handleCancel} className="mt-4 w-full text-sm text-gray-600 hover:underline">Hủy bỏ</button>
         </div>
     )
   }
@@ -388,19 +501,25 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   if (scanState === 'success') {
     const isRequest = !receipt; 
     return (
-        <div className="w-full p-4 rounded-lg flex flex-col items-center justify-center text-center bg-green-50 dark:bg-green-900/50 border border-green-200 dark:border-green-700 min-h-[290px]">
-            <CheckCircleIcon className="h-12 w-12 text-green-500 mb-3" />
-            <h3 className="text-xl font-bold text-green-800 dark:text-green-200">{isRequest ? 'Đã gửi yêu cầu!' : 'Chấm công thành công!'}</h3>
-            <div className="text-left mt-4 space-y-2 text-sm text-gray-700 dark:text-gray-300 w-full">
+        <div className="w-full p-4 rounded-lg flex flex-col items-center justify-center text-center bg-green-50 dark:bg-green-900/50 border border-green-200 dark:border-green-700 min-h-[290px] animate-in zoom-in duration-300">
+            <CheckCircleIcon className="h-16 w-16 text-green-500 mb-3" />
+            <h3 className="text-2xl font-bold text-green-800 dark:text-green-200">{isRequest ? 'Đã gửi yêu cầu!' : 'Chấm công thành công!'}</h3>
+            <div className="text-left mt-6 space-y-3 text-base text-gray-700 dark:text-gray-300 w-full bg-white/50 dark:bg-black/20 p-4 rounded-lg">
                 {!isRequest && (
                     <>
-                        <div className="flex justify-between"><span>Trạng thái:</span><span>{receipt?.status === AttendanceStatus.CHECK_IN ? 'Check-in' : 'Check-out'}</span></div>
-                        <div className="flex justify-between"><span>Thời gian:</span><span>{receipt ? formatTimestamp(receipt.timestamp) : ''}</span></div>
+                        <div className="flex justify-between border-b border-gray-200 dark:border-gray-700 pb-2">
+                            <span className="font-medium">Trạng thái</span>
+                            <span className="font-bold text-primary-600">{receipt?.status === AttendanceStatus.CHECK_IN ? 'CHECK-IN' : 'CHECK-OUT'}</span>
+                        </div>
+                        <div className="flex justify-between pt-2">
+                            <span className="font-medium">Thời gian</span>
+                            <span>{receipt ? formatTimestamp(receipt.timestamp) : ''}</span>
+                        </div>
                     </>
                 )}
                  {((receipt && receipt.selfieImage) || (isRequest && selfieData)) && (
-                    <div className="flex justify-center pt-2">
-                        <img src={receipt?.selfieImage || selfieData || ''} className="h-20 w-20 rounded-full object-cover border-2 border-white shadow-md" />
+                    <div className="flex justify-center pt-4">
+                        <img src={receipt?.selfieImage || selfieData || ''} className="h-24 w-24 rounded-full object-cover border-4 border-white shadow-lg" />
                     </div>
                  )}
             </div>

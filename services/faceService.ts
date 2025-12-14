@@ -26,10 +26,10 @@ export const loadFaceModels = async () => {
 export const detectFace = async (imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement) => {
     if (!isModelLoaded) await loadFaceModels();
     
-    // TinyFaceDetectorOptions:
-    // inputSize: Kích thước càng nhỏ xử lý càng nhanh, nhưng độ chính xác giảm với mặt nhỏ. 224 là chuẩn, 160 là siêu nhanh.
-    // scoreThreshold: Ngưỡng tin cậy để coi là khuôn mặt.
-    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+    // TỐI ƯU HÓA QUAN TRỌNG:
+    // inputSize: 160 (giảm từ 224). Giúp xử lý nhanh hơn đáng kể trên mobile/tablet.
+    // scoreThreshold: 0.5. Chỉ nhận diện nếu chắc chắn > 50% là khuôn mặt.
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 });
     
     const detection = await faceapi.detectSingleFace(imageElement, options)
         .withFaceLandmarks()
@@ -38,7 +38,38 @@ export const detectFace = async (imageElement: HTMLImageElement | HTMLVideoEleme
     return detection;
 };
 
-// Hàm tính khoảng cách Euclidean thuần túy (Nhanh hơn FaceMatcher của thư viện)
+// Hàm hỗ trợ resize kết quả detection để vẽ lên canvas (cho khớp với kích thước video hiển thị)
+export const resizeResults = (detection: any, size: { width: number, height: number }) => {
+    return faceapi.resizeResults(detection, size);
+};
+
+// Hàm vẽ khung khuôn mặt
+export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: boolean) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Xóa canvas cũ
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Lấy box
+    const box = detection.detection.box;
+    
+    // Vẽ khung
+    ctx.strokeStyle = isMatch ? '#10b981' : '#ef4444'; // Xanh nếu khớp, Đỏ nếu không
+    ctx.lineWidth = 4;
+    ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+    // Vẽ nền mờ cho chữ
+    ctx.fillStyle = isMatch ? '#10b981' : '#ef4444';
+    ctx.fillRect(box.x, box.y - 30, box.width, 30);
+
+    // Vẽ chữ
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(isMatch ? "OK - Đang chấm công..." : "Không khớp", box.x + 10, box.y - 10);
+};
+
+// Hàm tính khoảng cách Euclidean thuần túy
 function euclideanDistance(descriptor1: Float32Array, descriptor2: Float32Array): number {
     let sum = 0;
     for (let i = 0; i < descriptor1.length; i++) {
@@ -53,14 +84,9 @@ export const matchFace = async (liveDescriptor: Float32Array, storedDescriptorSt
 
     try {
         const storedDescriptor = new Float32Array(Object.values(JSON.parse(storedDescriptorStr)));
-        
-        // So sánh trực tiếp bằng toán học, không cần khởi tạo FaceMatcher
         const distance = euclideanDistance(liveDescriptor, storedDescriptor);
         
-        // Ngưỡng (Threshold):
-        // < 0.4: Rất giống (Chính xác cao)
-        // < 0.5: Giống (Mức trung bình cho chấm công)
-        // < 0.6: Khá giống (Dễ chấp nhận sai số)
+        // Ngưỡng (Threshold): 0.5
         const threshold = 0.5;
 
         return {
