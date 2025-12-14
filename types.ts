@@ -30,6 +30,7 @@ export interface Employee {
   shiftId?: string | null; // Optional link to a Shift, allow null for "no shift"
   locationId?: string | null; // Optional link to a Location, allow null for "no location"
   jobTitleId?: string | null; // Optional link to a JobTitle
+  faceDescriptor?: string; // JSON stringified array of face descriptor numbers
 }
 
 // FIX: Add CurrentUser type definition here to be shared across the app.

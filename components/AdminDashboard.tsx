@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   addEmployee, 
   deleteEmployee, 
@@ -16,6 +16,7 @@ import {
   getInitialData,
   processAttendanceRequest,
 } from '../services/attendanceService';
+import { loadFaceModels, detectFace } from '../services/faceService';
 import type { Employee, AttendanceRecord, Shift, Location, JobTitle, AttendanceRequest } from '../types';
 import { AttendanceStatus, RequestStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
@@ -32,6 +33,13 @@ interface AdminDashboardProps {
   onImpersonate: (employee: Employee) => void;
 }
 
+// Face Icon
+const FaceSmileIcon = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 0 1-6.364 0M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Z" />
+    </svg>
+);
+
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate }) => {
   const [activeTab, setActiveTab] = useState<Tab>('timesheet');
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -46,6 +54,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate
   const [error, setError] = useState<string | null>(null);
   
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [enrollingEmployee, setEnrollingEmployee] = useState<Employee | null>(null);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
   const [editingJobTitle, setEditingJobTitle] = useState<JobTitle | null>(null);
@@ -102,6 +111,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate
     try {
       await updateEmployee(id, updates);
       setEditingEmployee(null);
+      setEnrollingEmployee(null);
       await loadData();
       return { success: true };
     } catch (error) {
@@ -234,6 +244,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate
                  onAddEmployee={handleAddEmployee}
                  onDeleteEmployee={handleDeleteEmployee} 
                  onEditEmployee={setEditingEmployee}
+                 onEnrollFace={setEnrollingEmployee}
                  onImpersonate={onImpersonate}
                />;
       case 'shifts':
@@ -372,6 +383,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onImpersonate
           onSave={handleUpdateEmployee}
         />
       )}
+      {enrollingEmployee && (
+          <FaceEnrollmentModal 
+            employee={enrollingEmployee} 
+            onClose={() => setEnrollingEmployee(null)}
+            onSave={handleUpdateEmployee}
+          />
+      )}
       {editingShift && (
         <EditShiftModal
           shift={editingShift}
@@ -475,7 +493,7 @@ const AttendanceLog: React.FC<{ records: AttendanceRecord[], onViewImage: (url: 
     );
 };
 
-const EmployeeManagement: React.FC<any> = ({ employees, shifts, locations, jobTitles, onAddEmployee, onDeleteEmployee, onEditEmployee, onImpersonate }) => {
+const EmployeeManagement: React.FC<any> = ({ employees, shifts, locations, jobTitles, onAddEmployee, onDeleteEmployee, onEditEmployee, onEnrollFace, onImpersonate }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [newEmployee, setNewEmployee] = useState({ name: '', username: '', password: '', shiftId: '', locationId: '', jobTitleId: '' });
 
@@ -493,9 +511,17 @@ const EmployeeManagement: React.FC<any> = ({ employees, shifts, locations, jobTi
                 {employees.map((emp: Employee) => (
                     <div key={emp.id} className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow relative">
                         <div className="flex justify-between items-start">
-                            <div>
-                                <h3 className="font-bold text-lg dark:text-white">{emp.name}</h3>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">@{emp.username}</p>
+                            <div className="flex items-center gap-3">
+                                <div>
+                                    <h3 className="font-bold text-lg dark:text-white flex items-center gap-2">
+                                        {emp.name}
+                                        {emp.faceDescriptor ? 
+                                            <span title="Đã đăng ký Face ID" className="text-green-500"><FaceSmileIcon className="h-5 w-5" /></span> : 
+                                            <span title="Chưa đăng ký Face ID" className="text-gray-300"><FaceSmileIcon className="h-5 w-5" /></span>
+                                        }
+                                    </h3>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400">@{emp.username}</p>
+                                </div>
                             </div>
                             <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs px-2 py-1 rounded font-mono">{emp.deviceCode}</span>
                         </div>
@@ -504,10 +530,13 @@ const EmployeeManagement: React.FC<any> = ({ employees, shifts, locations, jobTi
                             <p>Vị trí: {locations.find((l: any) => l.id === emp.locationId)?.name || 'N/A'}</p>
                             <p>Chức vụ: {jobTitles.find((j: any) => j.id === emp.jobTitleId)?.name || 'N/A'}</p>
                         </div>
-                        <div className="mt-4 flex gap-2 border-t pt-4 dark:border-gray-700">
-                            <button onClick={() => onEditEmployee(emp)} className="text-blue-600 hover:text-blue-800 text-sm">Sửa</button>
+                        <div className="mt-4 flex flex-wrap gap-2 border-t pt-4 dark:border-gray-700">
+                             <button onClick={() => onEnrollFace(emp)} className={`text-xs px-2 py-1 rounded border ${emp.faceDescriptor ? 'border-green-200 text-green-700 bg-green-50' : 'border-gray-200 text-gray-600 bg-gray-50'}`}>
+                                {emp.faceDescriptor ? 'Cập nhật Face ID' : 'Đăng ký Face ID'}
+                            </button>
+                            <button onClick={() => onEditEmployee(emp)} className="text-blue-600 hover:text-blue-800 text-sm ml-auto">Sửa</button>
                             <button onClick={() => onImpersonate(emp)} className="text-yellow-600 hover:text-yellow-800 text-sm">Giả lập</button>
-                            <button onClick={() => onDeleteEmployee(emp.id)} className="text-red-600 hover:text-red-800 text-sm ml-auto">Xóa</button>
+                            <button onClick={() => onDeleteEmployee(emp.id)} className="text-red-600 hover:text-red-800 text-sm">Xóa</button>
                         </div>
                     </div>
                 ))}
@@ -543,6 +572,10 @@ const EmployeeManagement: React.FC<any> = ({ employees, shifts, locations, jobTi
         </div>
     );
 };
+
+// ... (Other components remain same: ShiftManagement, LocationManagement, JobTitleManagement, AttendanceTimesheet, Payroll, RequestManagement)
+// For brevity, skipping repeated code blocks that were not changed. Assume they exist as in the original file.
+// RE-INCLUDING THEM TO ENSURE FILE INTEGRITY
 
 const ShiftManagement: React.FC<any> = ({ shifts, onAddShift, onDeleteShift, onEditShift }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -726,7 +759,6 @@ const JobTitleManagement: React.FC<any> = ({ jobTitles, onAddJobTitle, onDeleteJ
 };
 
 const AttendanceTimesheet: React.FC<{ employees: Employee[], records: AttendanceRecord[] }> = ({ employees, records }) => {
-    // Simplistic implementation for Timesheet
     return (
         <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
             <h3 className="text-lg font-bold mb-4 dark:text-white">Bảng chấm công tổng hợp</h3>
@@ -911,6 +943,8 @@ const RequestManagement: React.FC<{ requests: AttendanceRequest[], onProcess: (r
     )
 }
 
+// ... Edit Modals ...
+
 const EditEmployeeModal: React.FC<{ employee: Employee, shifts: Shift[], locations: Location[], jobTitles: JobTitle[], onClose: () => void, onSave: (id: string, updates: Partial<Employee>) => void }> = ({ employee, shifts, locations, jobTitles, onClose, onSave }) => {
     const [updates, setUpdates] = useState<Partial<Employee>>({});
 
@@ -1062,6 +1096,116 @@ const EditJobTitleModal: React.FC<{
                         <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">Lưu</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    );
+};
+
+// --- FACE ENROLLMENT MODAL ---
+const FaceEnrollmentModal: React.FC<{
+    employee: Employee;
+    onClose: () => void;
+    onSave: (id: string, updates: Partial<Employee>) => Promise<any>;
+}> = ({ employee, onClose, onSave }) => {
+    const [step, setStep] = useState<'camera' | 'processing' | 'success' | 'error'>('camera');
+    const [errorMsg, setErrorMsg] = useState('');
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+
+    useEffect(() => {
+        startCamera();
+        loadFaceModels().catch(err => {
+             setErrorMsg("Không thể tải models AI: " + err.message);
+             setStep('error');
+        });
+        return () => stopCamera();
+    }, []);
+
+    const startCamera = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+            }
+            streamRef.current = stream;
+        } catch (e) {
+            setErrorMsg("Không thể truy cập camera.");
+            setStep('error');
+        }
+    };
+
+    const stopCamera = () => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(t => t.stop());
+        }
+    };
+
+    const handleCapture = async () => {
+        if (!videoRef.current) return;
+        setStep('processing');
+        try {
+            const detection = await detectFace(videoRef.current);
+            if (!detection) {
+                setErrorMsg("Không tìm thấy khuôn mặt. Vui lòng thử lại.");
+                setStep('error');
+                return;
+            }
+            
+            // Save descriptor as JSON string
+            const descriptorStr = JSON.stringify(Array.from(detection.descriptor));
+            await onSave(employee.id, { faceDescriptor: descriptorStr });
+            setStep('success');
+
+        } catch (e: any) {
+            setErrorMsg(e.message || "Lỗi xử lý khuôn mặt.");
+            setStep('error');
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-bold mb-4 dark:text-white">Đăng ký Face ID: {employee.name}</h3>
+                
+                {step === 'camera' && (
+                    <div className="space-y-4">
+                        <div className="relative aspect-video bg-gray-200 dark:bg-gray-700 rounded overflow-hidden">
+                             <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
+                             <div className="absolute inset-0 border-2 border-dashed border-blue-400 opacity-50 m-8 rounded"></div>
+                        </div>
+                        <p className="text-sm text-center text-gray-500">Giữ khuôn mặt ở giữa khung hình và đủ ánh sáng.</p>
+                        <div className="flex gap-2">
+                             <button onClick={onClose} className="flex-1 py-2 bg-gray-200 rounded">Hủy</button>
+                             <button onClick={handleCapture} className="flex-1 py-2 bg-blue-600 text-white rounded">Chụp & Lưu</button>
+                        </div>
+                    </div>
+                )}
+
+                {step === 'processing' && (
+                    <div className="py-8 text-center space-y-4">
+                        <LoadingIcon className="h-10 w-10 mx-auto text-blue-500"/>
+                        <p className="text-gray-600 dark:text-gray-300">Đang phân tích khuôn mặt...</p>
+                    </div>
+                )}
+
+                {step === 'success' && (
+                    <div className="py-8 text-center space-y-4">
+                        <CheckCircleIcon className="h-12 w-12 mx-auto text-green-500"/>
+                        <p className="font-bold text-green-600">Đăng ký thành công!</p>
+                        <button onClick={onClose} className="px-6 py-2 bg-green-600 text-white rounded">Đóng</button>
+                    </div>
+                )}
+
+                {step === 'error' && (
+                    <div className="py-8 text-center space-y-4">
+                         <XCircleIcon className="h-12 w-12 mx-auto text-red-500"/>
+                         <p className="text-red-600">{errorMsg}</p>
+                         <div className="flex gap-2 justify-center">
+                            <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">Đóng</button>
+                            <button onClick={() => { setStep('camera'); setErrorMsg(''); }} className="px-4 py-2 bg-blue-600 text-white rounded">Thử lại</button>
+                         </div>
+                    </div>
+                )}
             </div>
         </div>
     );
