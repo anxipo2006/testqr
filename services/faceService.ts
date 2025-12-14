@@ -26,7 +26,9 @@ export const loadFaceModels = async () => {
 export const detectFace = async (imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement) => {
     if (!isModelLoaded) await loadFaceModels();
     
-    // Using TinyFaceDetector for speed on mobile devices
+    // TinyFaceDetectorOptions:
+    // inputSize: Kích thước càng nhỏ xử lý càng nhanh, nhưng độ chính xác giảm với mặt nhỏ. 224 là chuẩn, 160 là siêu nhanh.
+    // scoreThreshold: Ngưỡng tin cậy để coi là khuôn mặt.
     const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
     
     const detection = await faceapi.detectSingleFace(imageElement, options)
@@ -36,20 +38,37 @@ export const detectFace = async (imageElement: HTMLImageElement | HTMLVideoEleme
     return detection;
 };
 
+// Hàm tính khoảng cách Euclidean thuần túy (Nhanh hơn FaceMatcher của thư viện)
+function euclideanDistance(descriptor1: Float32Array, descriptor2: Float32Array): number {
+    let sum = 0;
+    for (let i = 0; i < descriptor1.length; i++) {
+        const diff = descriptor1[i] - descriptor2[i];
+        sum += diff * diff;
+    }
+    return Math.sqrt(sum);
+}
+
 export const matchFace = async (liveDescriptor: Float32Array, storedDescriptorStr: string): Promise<{ isMatch: boolean; distance: number }> => {
     if (!storedDescriptorStr) return { isMatch: false, distance: 1 };
 
-    const storedDescriptor = new Float32Array(Object.values(JSON.parse(storedDescriptorStr)));
-    const faceMatcher = new faceapi.FaceMatcher(storedDescriptor, 0.5); // 0.5 is threshold
-    const match = faceMatcher.findBestMatch(liveDescriptor);
-    
-    // face-api returns a match object. If the label is 'unknown', distance was > threshold
-    // But we are comparing 1:1, so we look at distance directly.
-    // Lower distance = better match. 
-    // Typical threshold: 0.6. For high security: 0.45 or 0.5.
-    
-    return {
-        isMatch: match.distance < 0.45, // Strict threshold for attendance
-        distance: match.distance
-    };
+    try {
+        const storedDescriptor = new Float32Array(Object.values(JSON.parse(storedDescriptorStr)));
+        
+        // So sánh trực tiếp bằng toán học, không cần khởi tạo FaceMatcher
+        const distance = euclideanDistance(liveDescriptor, storedDescriptor);
+        
+        // Ngưỡng (Threshold):
+        // < 0.4: Rất giống (Chính xác cao)
+        // < 0.5: Giống (Mức trung bình cho chấm công)
+        // < 0.6: Khá giống (Dễ chấp nhận sai số)
+        const threshold = 0.5;
+
+        return {
+            isMatch: distance < threshold,
+            distance: distance
+        };
+    } catch (e) {
+        console.error("Lỗi so sánh khuôn mặt:", e);
+        return { isMatch: false, distance: 1 };
+    }
 }

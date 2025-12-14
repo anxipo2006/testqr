@@ -192,7 +192,7 @@ export const getEmployees = async (): Promise<Employee[]> => {
 
 const generateDeviceCode = (): string => {
     return Math.random().toString(36).substring(2, 7).toUpperCase();
-}
+};
 
 export const addEmployee = async (name: string, username: string, password: string, shiftId?: string, locationId?: string, jobTitleId?: string): Promise<Employee> => {
   if (!name.trim() || !username.trim() || !password.trim()) {
@@ -307,19 +307,17 @@ export const getLastRecordForEmployee = async (employeeId: string): Promise<Atte
     return records.length > 0 ? records[0] : null;
 };
 
+// OPTIMIZED: Now accepts full Employee and Location objects to avoid re-fetching them.
 export const addAttendanceRecord = async (
-  employeeId: string,
+  employee: Employee,
+  location: Location,
   status: AttendanceStatus,
-  scannedLocationId: string,
   coords: { latitude: number; longitude: number; accuracy: number },
   selfieImage?: string
 ): Promise<AttendanceRecord> => {
-  // FIX: Use v8 compat syntax for getting a document
-  const employeeSnap = await db.collection('employees').doc(employeeId).get();
-  if (!employeeSnap.exists) throw new Error('Nhân viên không tồn tại.');
-  const employee = { ...employeeSnap.data(), id: employeeSnap.id } as Employee;
-
-  const lastRecord = await getLastRecordForEmployee(employeeId);
+  
+  // 1. Check Previous Record (We still need to fetch this to ensure data integrity, but it's 1 call)
+  const lastRecord = await getLastRecordForEmployee(employee.id);
 
   if (status === AttendanceStatus.CHECK_IN && lastRecord?.status === AttendanceStatus.CHECK_IN) {
     throw new Error('Bạn đã check-in rồi. Vui lòng check-out trước.');
@@ -328,14 +326,10 @@ export const addAttendanceRecord = async (
     throw new Error('Bạn chưa check-in. Vui lòng check-in trước.');
   }
 
-  if (employee.locationId && employee.locationId !== scannedLocationId) {
+  // 2. Validate Location (Data passed from arguments, no DB call)
+  if (employee.locationId && employee.locationId !== location.id) {
       throw new Error('Mã QR không hợp lệ cho địa điểm làm việc của bạn.');
   }
-
-  // FIX: Use v8 compat syntax for getting a document
-  const locationSnap = await db.collection('locations').doc(scannedLocationId).get();
-  if (!locationSnap.exists) throw new Error('Địa điểm làm việc không hợp lệ hoặc đã bị xóa.');
-  const location = { ...locationSnap.data(), id: locationSnap.id } as Location;
   
   if (location.requireSelfie && !selfieImage) {
     throw new Error('Địa điểm này yêu cầu chụp ảnh selfie để chấm công.');
@@ -343,25 +337,22 @@ export const addAttendanceRecord = async (
   
   const distance = haversineDistance(coords, { latitude: location.latitude, longitude: location.longitude });
   
-  // Account for GPS inaccuracy. We only fail if the user's *closest possible* location
-  // (based on accuracy) is still outside the radius.
   if (distance - coords.accuracy > location.radius) {
-      throw new Error(`Bạn đang ở quá xa địa điểm làm việc. (Khoảng cách: ${distance.toFixed(0)}m, bán kính cho phép: ${location.radius}m, độ chính xác vị trí: ${coords.accuracy.toFixed(0)}m)`);
+      throw new Error(`Bạn đang ở quá xa địa điểm làm việc. (Khoảng cách: ${distance.toFixed(0)}m, bán kính cho phép: ${location.radius}m)`);
   }
 
+  // 3. Validate Shift (Only fetch if needed)
   let shiftName: string | undefined;
   let isLate: boolean = false;
   let isEarly: boolean = false;
 
   if (employee.shiftId) {
-    // FIX: Use v8 compat syntax for getting a document
     const shiftSnap = await db.collection('shifts').doc(employee.shiftId).get();
     if (shiftSnap.exists) {
         const shift = { ...shiftSnap.data(), id: shiftSnap.id } as Shift;
         shiftName = shift.name;
         const now = new Date();
         
-        // Use the check-in time for checkout validation, otherwise use current time for check-in
         const referenceDate = (status === AttendanceStatus.CHECK_OUT && lastRecord) 
                                 ? new Date(lastRecord.timestamp) 
                                 : now;
@@ -376,13 +367,12 @@ export const addAttendanceRecord = async (
         const shiftStartTime = getTimeForReferenceDate(shift.startTime);
         let shiftEndTime = getTimeForReferenceDate(shift.endTime);
 
-        // Handle overnight shifts by advancing the end time to the next day if necessary
         if (shiftEndTime <= shiftStartTime) {
             shiftEndTime.setDate(shiftEndTime.getDate() + 1);
         }
 
         const gracePeriodMinutes = 5; 
-        const checkInWindowMinutesBefore = 30; // Can check in up to 30 mins before shift starts
+        const checkInWindowMinutesBefore = 30;
         
         if (status === AttendanceStatus.CHECK_IN) {
             const earliestCheckInTime = new Date(shiftStartTime.getTime() - checkInWindowMinutesBefore * 60000);
@@ -397,14 +387,13 @@ export const addAttendanceRecord = async (
             const graceTime = new Date(shiftStartTime.getTime() + gracePeriodMinutes * 60000);
             isLate = now > graceTime;
         } else if (status === AttendanceStatus.CHECK_OUT) {
-             const checkOutWindowMinutesAfter = 120; // Can check out up to 2 hours after shift ends
+             const checkOutWindowMinutesAfter = 120;
             const latestCheckOutTime = new Date(shiftEndTime.getTime() + checkOutWindowMinutesAfter * 60000);
 
             if (now > latestCheckOutTime) {
-                throw new Error('Đã quá muộn để check-out cho ca làm việc này. Vui lòng liên hệ quản trị viên.');
+                throw new Error('Đã quá muộn để check-out cho ca làm việc này.');
             }
             if (now < shiftStartTime) {
-                // This case is unlikely if they already checked in, but good for safety.
                 throw new Error('Bạn không thể check-out trước khi ca làm việc bắt đầu.');
             }
             isEarly = now < shiftEndTime;
@@ -413,7 +402,7 @@ export const addAttendanceRecord = async (
   }
 
   const recordToSave: Omit<AttendanceRecord, 'id'> = {
-    employeeId,
+    employeeId: employee.id,
     employeeName: employee.name,
     username: employee.username,
     timestamp: Date.now(),
@@ -427,7 +416,6 @@ export const addAttendanceRecord = async (
     ...(selfieImage && { selfieImage }),
   };
 
-  // FIX: Use v8 compat syntax for adding a document
   const docRef = await recordsCol.add(recordToSave);
   return { ...recordToSave, id: docRef.id } as AttendanceRecord;
 };
@@ -547,25 +535,18 @@ export const processAttendanceRequest = async (request: AttendanceRequest, actio
 
 // --- Data Fetching ---
 export const getInitialData = async () => {
-    // Capture specific error for requests to show in UI
     let requestsError: any = null;
 
-    // Fetch requests separately to allow the app to load even if the new collection is restricted
-    // This specifically prevents "Missing or insufficient permissions" from crashing the Admin Dashboard
     const fetchRequestsSafe = async () => {
         try {
             return await getAttendanceRequests();
         } catch (error) {
-            console.warn("Failed to fetch attendance requests. This may be due to missing permissions or the collection not existing yet.", error);
+            console.warn("Failed to fetch attendance requests.", error);
             requestsError = error;
-            // Return empty array to allow the rest of the app to function
             return [] as AttendanceRequest[];
         }
     };
 
-    // We wrap the critical data fetches in a Promise.all, but requests is separate
-    // If getEmployees() or getRecords() fails, the app *should* probably fail (or handle it elsewhere)
-    // as those are core to the admin function.
     const [employees, records, shifts, locations, jobTitles, requests] = await Promise.all([
         getEmployees(),
         getAttendanceRecords(),

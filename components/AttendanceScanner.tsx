@@ -123,7 +123,9 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
         };
         
         setProcessingMessage(`Đang xác thực ${nextActionText}...`);
-        const newRecord = await addAttendanceRecord(employee.id, nextAction, location.id, coords, selfie);
+        
+        // OPTIMIZED: Pass employee and location objects directly
+        const newRecord = await addAttendanceRecord(employee, location, nextAction, coords, selfie);
 
         await onScanComplete();
         showResult('success', newRecord);
@@ -210,31 +212,34 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
       setScanState('processing');
       setProcessingMessage('Đang phân tích khuôn mặt...');
 
-      try {
-          // If employee has Face ID registered, verify it
-          if (employee.faceDescriptor) {
-              const detection = await detectFace(videoRef.current);
-              if (!detection) {
-                  throw new Error("Không tìm thấy khuôn mặt. Vui lòng thử lại.");
+      // Allow UI to update before blocking with heavy calculation
+      setTimeout(async () => {
+          try {
+              // If employee has Face ID registered, verify it
+              if (employee.faceDescriptor) {
+                  const detection = await detectFace(videoRef.current!); // Use ! because we checked videoRef.current above, but inside setTimeout TS loses context
+                  if (!detection) {
+                      throw new Error("Không tìm thấy khuôn mặt. Vui lòng thử lại.");
+                  }
+                  const matchResult = await matchFace(detection.descriptor, employee.faceDescriptor);
+                  
+                  if (!matchResult.isMatch) {
+                       throw new Error("Khuôn mặt không khớp! Vui lòng thử lại hoặc liên hệ quản trị viên.");
+                  }
+                  
+                  setProcessingMessage('Xác thực thành công! Đang lưu...');
+                  // No need to wait for state update, call directly
+                  await processAttendance(scannedLocation, image);
+              } else {
+                  // Just a selfie requirement, no verification
+                  await processAttendance(scannedLocation, image);
               }
-              const matchResult = await matchFace(detection.descriptor, employee.faceDescriptor);
-              
-              if (!matchResult.isMatch) {
-                   throw new Error("Khuôn mặt không khớp! Vui lòng thử lại hoặc liên hệ quản trị viên.");
-              }
-              
-              setProcessingMessage('Xác thực khuôn mặt thành công! Đang chấm công...');
-              await processAttendance(scannedLocation, image);
-          } else {
-              // Just a selfie requirement, no verification
-              await processAttendance(scannedLocation, image);
+          } catch (e: any) {
+              setSelfieData(null); 
+              setScanState('verifyingFace'); 
+              alert(e.message); 
           }
-      } catch (e: any) {
-          // Allow retry
-          setSelfieData(null); // Clear image to show camera again
-          setScanState('verifyingFace'); // Go back to camera
-          alert(e.message); // Simple alert for retry loop
-      }
+      }, 50);
   }
 
   // --- REPORTING LOGIC ---
