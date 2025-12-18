@@ -1,13 +1,13 @@
 
 import { useState, useEffect } from 'react';
-import type { CurrentUser, Employee } from './types';
+import type { CurrentUser, Employee, AdminAccount } from './types';
 import LoginScreen from './components/LoginScreen';
 import AdminDashboard from './components/AdminDashboard';
+import SuperAdminDashboard from './components/SuperAdminDashboard';
 import EmployeePortal from './components/EmployeePortal';
 import { LoadingIcon } from './components/icons';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { login } from './services/attendanceService';
-
 
 function App() {
   const [currentUser, setCurrentUser] = useLocalStorage<CurrentUser | null>('currentUser', null);
@@ -15,55 +15,47 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [savedDeviceCode, setSavedDeviceCode] = useLocalStorage<string | null>('employeeDeviceCode', null);
 
-  // Kiểm tra mã đã lưu để tự động đăng nhập
   useEffect(() => {
     const autoLogin = async () => {
-      // Nếu không có người dùng hiện tại nhưng có mã đã lưu
       if (!currentUser && savedDeviceCode) {
         try {
           const user = await login('employee', { deviceCode: savedDeviceCode });
           if (user) {
             setCurrentUser(user);
           } else {
-            // Mã đã lưu không hợp lệ (ví dụ: nhân viên đã bị xóa)
             setSavedDeviceCode(null);
           }
         } catch (error) {
           console.error("Auto-login failed:", error);
-          setSavedDeviceCode(null); // Xóa mã không hợp lệ
+          setSavedDeviceCode(null);
         }
       }
       setIsLoading(false);
     };
 
-    // Chỉ tự động đăng nhập nếu không có phiên giả lập
     if (!originalAdmin) {
         autoLogin();
     } else {
         setIsLoading(false);
     }
-     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
 
   const handleLogout = () => {
     setCurrentUser(null);
-    setSavedDeviceCode(null); // Xóa mã đã lưu khi đăng xuất
-    setOriginalAdmin(null); // Xóa phiên giả lập
+    setSavedDeviceCode(null);
+    setOriginalAdmin(null);
   };
 
   const handleLogin = (user: CurrentUser) => {
-    // Nếu người dùng đăng nhập là nhân viên, lưu mã của họ
     if ('deviceCode' in user) {
         setSavedDeviceCode(user.deviceCode);
     }
-    // Xóa bất kỳ phiên giả lập nào còn sót lại khi đăng nhập mới
     setOriginalAdmin(null);
     setCurrentUser(user);
   };
   
   const handleImpersonate = (employeeToImpersonate: Employee) => {
-    if (currentUser && !('deviceCode' in currentUser)) { // Ensure it's an admin
+    if (currentUser && 'role' in currentUser) {
       setOriginalAdmin(currentUser);
       setCurrentUser(employeeToImpersonate);
     }
@@ -94,8 +86,11 @@ function App() {
                 impersonatingAdmin={originalAdmin}
                 onStopImpersonation={handleStopImpersonation}
               />;
+  } else if ('role' in currentUser && currentUser.role === 'SUPER_ADMIN') {
+    content = <SuperAdminDashboard onLogout={handleLogout} />;
   } else {
     content = <AdminDashboard 
+                admin={currentUser as AdminAccount}
                 onLogout={handleLogout} 
                 onImpersonate={handleImpersonate}
               />;

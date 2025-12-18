@@ -80,9 +80,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout, imp
         const [employeeRecords, lastRecord, allShifts, allLocations, allJobTitles] = await Promise.all([
             getRecordsForEmployee(employee.id),
             getLastRecordForEmployee(employee.id),
-            getShifts(),
-            getLocations(),
-            getJobTitles(),
+            getShifts(employee.companyId), // Fixed: pass companyId
+            getLocations(employee.companyId), // Fixed: pass companyId
+            getJobTitles(employee.companyId), // Fixed: pass companyId
         ]);
 
         setRecords(employeeRecords);
@@ -265,7 +265,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout, imp
                 {/* POS Tab - Special Layout (No padding on mobile to maximize space) */}
                 {activeTab === 'pos' && (
                      <div className="h-full">
-                        <POSTerminal currentUser={{ name: employee.name, id: employee.id }} />
+                        <POSTerminal companyId={employee.companyId} currentUser={{ name: employee.name, id: employee.id }} />
                     </div>
                 )}
 
@@ -379,7 +379,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ employee, onLogout, imp
                 {/* Orders Tab Content */}
                 {activeTab === 'orders' && (
                     <div className="h-full bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-                        <OrderList />
+                        <OrderList companyId={employee.companyId} />
                     </div>
                 )}
             </div>

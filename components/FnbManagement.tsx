@@ -9,7 +9,7 @@ import { formatTimestamp } from '../utils/date';
 // --- Sub-components ---
 
 // 1. Menu Manager
-const MenuManager: React.FC = () => {
+const MenuManager: React.FC<{ companyId: string }> = ({ companyId }) => {
     const [products, setProducts] = useState<Product[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -23,14 +23,14 @@ const MenuManager: React.FC = () => {
 
     const loadProducts = async () => {
         setIsLoading(true);
-        const data = await getAllProducts();
+        const data = await getAllProducts(companyId);
         setProducts(data);
         setIsLoading(false);
     };
 
     useEffect(() => {
         loadProducts();
-    }, []);
+    }, [companyId]);
 
     const handleOpenModal = (product?: Product) => {
         if (product) {
@@ -52,6 +52,7 @@ const MenuManager: React.FC = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const productData = {
+            companyId, // Fixed: include companyId
             name,
             price: parseFloat(price),
             category,
@@ -292,7 +293,7 @@ const DualPrintModal: React.FC<{ order: Order; onClose: () => void }> = ({ order
 
 
 // 2. POS Terminal
-const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = ({ currentUser }) => {
+const POSTerminal: React.FC<{ companyId: string; currentUser?: { name: string; id?: string } }> = ({ companyId, currentUser }) => {
     const [products, setProducts] = useState<Product[]>([]);
     const [cart, setCart] = useState<OrderItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState('All');
@@ -305,11 +306,11 @@ const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = (
 
     useEffect(() => {
         const load = async () => {
-            const data = await getAllProducts();
+            const data = await getAllProducts(companyId);
             setProducts(data.filter(p => p.isAvailable));
         }
         load();
-    }, []);
+    }, [companyId]);
 
     const categories = ['All', ...Array.from(new Set(products.map(p => p.category)))];
     const filteredProducts = selectedCategory === 'All' ? products : products.filter(p => p.category === selectedCategory);
@@ -350,6 +351,7 @@ const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = (
 
         try {
             const newOrder = await createOrder({
+                companyId, // Fixed: include companyId
                 timestamp: Date.now(),
                 items: cart,
                 totalAmount,
@@ -522,13 +524,13 @@ const POSTerminal: React.FC<{ currentUser?: { name: string; id?: string } }> = (
 };
 
 // 3. Order List (Kitchen View)
-const OrderList: React.FC = () => {
+const OrderList: React.FC<{ companyId: string }> = ({ companyId }) => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     const loadOrders = async () => {
         setIsLoading(true);
-        const data = await getActiveOrders();
+        const data = await getActiveOrders(companyId);
         setOrders(data);
         setIsLoading(false);
     };
@@ -537,7 +539,7 @@ const OrderList: React.FC = () => {
         loadOrders();
         const interval = setInterval(loadOrders, 30000); // Refresh every 30s
         return () => clearInterval(interval);
-    }, []);
+    }, [companyId]);
 
     const handleStatusChange = async (id: string, newStatus: OrderStatus) => {
         await updateOrderStatus(id, newStatus);

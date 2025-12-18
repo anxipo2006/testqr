@@ -7,9 +7,9 @@ const ordersCol = db.collection('orders');
 
 // --- Product Management ---
 
-export const getProducts = async (): Promise<Product[]> => {
+export const getProducts = async (companyId: string): Promise<Product[]> => {
     try {
-        const snapshot = await productsCol.where('isAvailable', '==', true).get();
+        const snapshot = await productsCol.where('companyId', '==', companyId).where('isAvailable', '==', true).get();
         return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Product));
     } catch (error) {
         console.error("Error fetching products:", error);
@@ -17,8 +17,8 @@ export const getProducts = async (): Promise<Product[]> => {
     }
 };
 
-export const getAllProducts = async (): Promise<Product[]> => {
-     const snapshot = await productsCol.get();
+export const getAllProducts = async (companyId: string): Promise<Product[]> => {
+     const snapshot = await productsCol.where('companyId', '==', companyId).get();
      return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Product));
 }
 
@@ -42,15 +42,13 @@ export const createOrder = async (order: Omit<Order, 'id'>): Promise<Order> => {
     return { ...order, id: docRef.id };
 };
 
-export const getOrders = async (limit: number = 50): Promise<Order[]> => {
-    const snapshot = await ordersCol.orderBy('timestamp', 'desc').limit(limit).get();
+export const getOrders = async (companyId: string, limit: number = 50): Promise<Order[]> => {
+    const snapshot = await ordersCol.where('companyId', '==', companyId).orderBy('timestamp', 'desc').limit(limit).get();
     return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
 };
 
-export const getActiveOrders = async (): Promise<Order[]> => {
-    // Note: In a real app, you need a composite index for status + timestamp
-    // Here we just fetch active ones
-    const snapshot = await ordersCol.where('status', 'in', ['PENDING', 'PREPARING']).get();
+export const getActiveOrders = async (companyId: string): Promise<Order[]> => {
+    const snapshot = await ordersCol.where('companyId', '==', companyId).where('status', 'in', ['PENDING', 'PREPARING']).get();
     const orders = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
     return orders.sort((a, b) => b.timestamp - a.timestamp);
 }
@@ -59,7 +57,7 @@ export const updateOrderStatus = async (id: string, status: OrderStatus): Promis
     await ordersCol.doc(id).update({ status });
 };
 
-export const getAllOrdersHistory = async (): Promise<Order[]> => {
-    const snapshot = await ordersCol.orderBy('timestamp', 'desc').limit(500).get();
+export const getAllOrdersHistory = async (companyId: string): Promise<Order[]> => {
+    const snapshot = await ordersCol.where('companyId', '==', companyId).orderBy('timestamp', 'desc').limit(500).get();
     return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
 }

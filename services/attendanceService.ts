@@ -1,12 +1,11 @@
 
 import { db } from './firebaseConfig';
-
 import { AttendanceStatus, RequestStatus } from '../types';
-import type { Employee, AttendanceRecord, Shift, CurrentUser, Location, JobTitle, AttendanceRequest } from '../types';
+import type { Employee, AttendanceRecord, Shift, CurrentUser, Location, JobTitle, AttendanceRequest, Company, AdminAccount } from '../types';
 
-
-// --- Collection References ---
-// FIX: Use v8 compat syntax for collection references
+// Collections
+const companiesCol = db.collection('companies');
+const adminsCol = db.collection('admins');
 const locationsCol = db.collection('locations');
 const shiftsCol = db.collection('shifts');
 const employeesCol = db.collection('employees');
@@ -14,66 +13,34 @@ const recordsCol = db.collection('records');
 const jobTitlesCol = db.collection('jobTitles');
 const requestsCol = db.collection('requests');
 
-
-// --- Geolocation Helpers ---
-const haversineDistance = (
-  coords1: { latitude: number; longitude: number },
-  coords2: { latitude: number; longitude: number }
-): number => {
-  const toRad = (x: number) => (x * Math.PI) / 180;
-
-  const R = 6371e3; // meters
-  const dLat = toRad(coords2.latitude - coords1.latitude);
-  const dLon = toRad(coords2.longitude - coords1.longitude);
-  const lat1 = toRad(coords1.latitude);
-  const lat2 = toRad(coords2.latitude);
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c; // in meters
+// --- Company Management (Super Admin only) ---
+export const getCompanies = async (): Promise<Company[]> => {
+  const snapshot = await companiesCol.get();
+  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Company));
 };
 
-
-// --- Location Management ---
-export const getLocations = async (): Promise<Location[]> => {
-  // FIX: Use v8 compat syntax for getting documents
-  const snapshot = await locationsCol.get();
-  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Location));
+export const addCompany = async (name: string): Promise<Company> => {
+  const newCompany = { name, createdAt: Date.now() };
+  const docRef = await companiesCol.add(newCompany);
+  return { ...newCompany, id: docRef.id };
 };
 
-export const getLocationById = async (locationId: string): Promise<Location | null> => {
-    const docRef = db.collection('locations').doc(locationId);
-    const doc = await docRef.get();
-    if (!doc.exists) {
-        return null;
-    }
-    return { ...doc.data(), id: doc.id } as Location;
+export const getCompanyAdmins = async (companyId: string): Promise<AdminAccount[]> => {
+  const snapshot = await adminsCol.where('companyId', '==', companyId).get();
+  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AdminAccount));
 };
 
-export const addLocation = async (location: Omit<Location, 'id'>): Promise<Location> => {
-  // FIX: Use v8 compat syntax for adding a document
-  const docRef = await locationsCol.add(location);
-  return { ...location, id: docRef.id };
+export const addCompanyAdmin = async (companyId: string, name: string, username: string, password: string): Promise<AdminAccount> => {
+  const newAdmin: Omit<AdminAccount, 'id'> = {
+    companyId,
+    name,
+    username,
+    password,
+    role: 'COMPANY_ADMIN'
+  };
+  const docRef = await adminsCol.add(newAdmin);
+  return { ...newAdmin, id: docRef.id };
 };
-
-export const updateLocation = async (locationId: string, updates: Partial<Omit<Location, 'id'>>): Promise<Location> => {
-    // FIX: Use v8 compat syntax for document reference, update, and get
-    const docRef = db.collection('locations').doc(locationId);
-    await docRef.update(updates);
-    const updatedDoc = await docRef.get();
-    return { ...updatedDoc.data(), id: locationId } as Location;
-};
-
-export const deleteLocation = async (locationId: string): Promise<void> => {
-  // FIX: Use v8 compat syntax for deleting a document
-  await db.collection('locations').doc(locationId).delete();
-  // In a real app, you might want to handle unassigning employees using a Cloud Function for atomicity.
-  // For simplicity, we'll require manual reassignment.
-};
-
 
 // --- Authentication ---
 export const login = async (
@@ -81,233 +48,149 @@ export const login = async (
   credentials: { username?: string; password?: string; deviceCode?: string }
 ): Promise<CurrentUser | null> => {
   if (role === 'admin') {
-    if (credentials.username?.toLowerCase() === 'admin' && credentials.password === 'admin123') {
-      return { id: 'admin', name: 'Admin', username: 'admin' };
+    // 1. Check Hardcoded Super Admin for first setup
+    if (credentials.username === 'superadmin' && credentials.password === 'super123') {
+      return { id: 'super', companyId: 'super', name: 'Super Admin', username: 'superadmin', password: '', role: 'SUPER_ADMIN' };
+    }
+    
+    // 2. Check Admins collection
+    const q = adminsCol.where("username", "==", credentials.username).limit(1);
+    const snapshot = await q.get();
+    if (snapshot.empty) return null;
+    const adminDoc = snapshot.docs[0];
+    const adminData = adminDoc.data() as AdminAccount;
+    if (adminData.password === credentials.password) {
+      return { ...adminData, id: adminDoc.id };
     }
     return null;
   }
 
   if (role === 'employee') {
     if (!credentials.deviceCode) return null;
-    
-    // Universal test account
-    if (credentials.deviceCode.toUpperCase() === 'TEST0') {
-      return {
-        id: 'test-employee-id',
-        name: 'Nhân viên Demo',
-        username: 'nhanviendemo',
-        password: '',
-        deviceCode: 'TEST0',
-        shiftId: null,
-        locationId: null,
-        jobTitleId: null
-      } as Employee;
-    }
-
-    // FIX: Use v8 compat syntax for query
     const q = employeesCol.where("deviceCode", "==", credentials.deviceCode.toUpperCase()).limit(1);
     const snapshot = await q.get();
-    if (snapshot.empty) {
-        return null;
-    }
+    if (snapshot.empty) return null;
     const employeeDoc = snapshot.docs[0];
     return { ...employeeDoc.data(), id: employeeDoc.id } as Employee;
   }
-
   return null;
 };
 
-// --- Shift Management ---
-export const getShifts = async (): Promise<Shift[]> => {
-  // FIX: Use v8 compat syntax for getting documents
-  const snapshot = await shiftsCol.get();
+// --- Scoped Data Fetching ---
+export const getLocations = async (companyId: string): Promise<Location[]> => {
+  const snapshot = await locationsCol.where('companyId', '==', companyId).get();
+  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Location));
+};
+
+export const getLocationById = async (locationId: string): Promise<Location | null> => {
+    const docRef = locationsCol.doc(locationId);
+    const doc = await docRef.get();
+    return doc.exists ? { ...doc.data(), id: doc.id } as Location : null;
+};
+
+export const addLocation = async (companyId: string, location: Omit<Location, 'id' | 'companyId'>): Promise<Location> => {
+  const data = { ...location, companyId };
+  const docRef = await locationsCol.add(data);
+  return { ...data, id: docRef.id } as Location;
+};
+
+export const updateLocation = async (id: string, updates: Partial<Location>): Promise<void> => {
+    await locationsCol.doc(id).update(updates);
+};
+
+export const deleteLocation = async (id: string): Promise<void> => {
+  await locationsCol.doc(id).delete();
+};
+
+export const getShifts = async (companyId: string): Promise<Shift[]> => {
+  const snapshot = await shiftsCol.where('companyId', '==', companyId).get();
   return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Shift));
 };
 
-export const addShift = async (name: string, startTime: string, endTime: string): Promise<Shift> => {
-  if (!name.trim() || !startTime.trim() || !endTime.trim()) {
-    throw new Error('Vui lòng điền đầy đủ thông tin ca làm việc.');
-  }
-  const newShift: Omit<Shift, 'id'> = {
-    name: name.trim(),
-    startTime,
-    endTime,
-  };
-  // FIX: Use v8 compat syntax for adding a document
+export const addShift = async (companyId: string, name: string, startTime: string, endTime: string): Promise<Shift> => {
+  const newShift = { companyId, name, startTime, endTime };
   const docRef = await shiftsCol.add(newShift);
-  return { ...newShift, id: docRef.id };
+  return { ...newShift, id: docRef.id } as Shift;
 };
 
-export const updateShift = async (shiftId: string, updates: Partial<Omit<Shift, 'id'>>): Promise<Shift> => {
-    // FIX: Use v8 compat syntax for document reference, update, and get
-    const docRef = db.collection('shifts').doc(shiftId);
-    await docRef.update(updates);
-    const updatedDoc = await docRef.get();
-    return { ...updatedDoc.data(), id: shiftId } as Shift;
+export const updateShift = async (id: string, updates: Partial<Shift>): Promise<void> => {
+    await shiftsCol.doc(id).update(updates);
 };
 
 export const deleteShift = async (id: string): Promise<void> => {
-  // FIX: Use v8 compat syntax for deleting a document
-  await db.collection('shifts').doc(id).delete();
+  await shiftsCol.doc(id).delete();
 };
 
-
-// --- Job Title Management ---
-export const getJobTitles = async (): Promise<JobTitle[]> => {
-  const snapshot = await jobTitlesCol.get();
+export const getJobTitles = async (companyId: string): Promise<JobTitle[]> => {
+  const snapshot = await jobTitlesCol.where('companyId', '==', companyId).get();
   return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JobTitle));
 };
 
-export const addJobTitle = async (name: string, hourlyRate: number): Promise<JobTitle> => {
-  if (!name.trim() || hourlyRate <= 0) {
-    throw new Error('Vui lòng điền tên và mức lương hợp lệ (lớn hơn 0).');
-  }
-  const newTitle: Omit<JobTitle, 'id'> = {
-    name: name.trim(),
-    hourlyRate,
-  };
+export const addJobTitle = async (companyId: string, name: string, hourlyRate: number): Promise<JobTitle> => {
+  const newTitle = { companyId, name, hourlyRate };
   const docRef = await jobTitlesCol.add(newTitle);
-  return { ...newTitle, id: docRef.id };
+  return { ...newTitle, id: docRef.id } as JobTitle;
 };
 
-export const updateJobTitle = async (id: string, updates: Partial<Omit<JobTitle, 'id'>>): Promise<JobTitle> => {
-  const docRef = db.collection('jobTitles').doc(id);
-  await docRef.update(updates);
-  const updatedDoc = await docRef.get();
-  return { ...updatedDoc.data(), id: id } as JobTitle;
+// Added missing updateJobTitle function
+export const updateJobTitle = async (id: string, updates: Partial<JobTitle>): Promise<void> => {
+    await jobTitlesCol.doc(id).update(updates);
 };
 
-export const deleteJobTitle = async (id: string): Promise<void> => {
-  await db.collection('jobTitles').doc(id).delete();
-  // In a real app, you might want to handle unassigning employees via a Cloud Function
-};
-
-
-// --- Employee Management ---
-export const getEmployees = async (): Promise<Employee[]> => {
-  // FIX: Use v8 compat syntax for getting documents
-  const snapshot = await employeesCol.get();
+export const getEmployees = async (companyId: string): Promise<Employee[]> => {
+  const snapshot = await employeesCol.where('companyId', '==', companyId).get();
   return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Employee));
 };
 
-const generateDeviceCode = (): string => {
-    return Math.random().toString(36).substring(2, 7).toUpperCase();
-};
+const generateDeviceCode = (): string => Math.random().toString(36).substring(2, 7).toUpperCase();
 
-export const addEmployee = async (name: string, username: string, password: string, shiftId?: string, locationId?: string, jobTitleId?: string): Promise<Employee> => {
-  if (!name.trim() || !username.trim() || !password.trim()) {
-    throw new Error('Vui lòng điền đầy đủ thông tin.');
-  }
-  
-  const trimmedUsername = username.trim();
-  // FIX: Use v8 compat syntax for query
-  const q = employeesCol.where("username", "==", trimmedUsername);
-  const existing = await q.get();
-  if (!existing.empty) {
-      throw new Error('Tên đăng nhập đã tồn tại. Vui lòng chọn tên khác.');
-  }
-
+export const addEmployee = async (companyId: string, name: string, username: string, password: string, shiftId?: string, locationId?: string, jobTitleId?: string): Promise<Employee> => {
   const newEmployee: Omit<Employee, 'id'> = {
+    companyId,
     name: name.trim(),
-    username: trimmedUsername,
-    password: password, // In a real app, this should be hashed server-side
+    username: username.trim(),
+    password,
     deviceCode: generateDeviceCode(),
     shiftId: shiftId || null,
     locationId: locationId || null,
     jobTitleId: jobTitleId || null,
   };
-  // FIX: Use v8 compat syntax for adding a document
   const docRef = await employeesCol.add(newEmployee);
-  return { ...newEmployee, id: docRef.id };
+  return { ...newEmployee, id: docRef.id } as Employee;
 };
 
-export const updateEmployee = async (employeeId: string, updates: Partial<Omit<Employee, 'id' | 'deviceCode'>>): Promise<Employee> => {
-  // FIX: Use v8 compat syntax for document reference
-  const docRef = db.collection('employees').doc(employeeId);
-
-  if (updates.username) {
-    const trimmedUsername = updates.username.trim();
-    if (!trimmedUsername) {
-        throw new Error('Tên đăng nhập không được để trống.');
-    }
-    // FIX: Use v8 compat syntax for query
-    const q = employeesCol.where("username", "==", trimmedUsername);
-    const existing = await q.get();
-    if (!existing.empty && existing.docs[0].id !== employeeId) {
-        throw new Error('Tên đăng nhập đã tồn tại. Vui lòng chọn tên khác.');
-    }
-    updates.username = trimmedUsername;
-  }
-  
-  if ('deviceCode' in updates) {
-      delete (updates as any).deviceCode;
-  }
-
-  // FIX: Use v8 compat syntax for update and get
-  await docRef.update(updates);
-  
-  const updatedDoc = await docRef.get();
-  if (!updatedDoc.exists) {
-      throw new Error("Không tìm thấy nhân viên sau khi cập nhật.");
-  }
-  return { ...updatedDoc.data(), id: updatedDoc.id } as Employee;
+export const updateEmployee = async (id: string, updates: Partial<Employee>): Promise<void> => {
+  await employeesCol.doc(id).update(updates);
 };
 
-export const deleteEmployee = async (employeeId: string): Promise<void> => {
-  // FIX: Use v8 compat syntax for batch and document reference
+export const deleteEmployee = async (id: string): Promise<void> => {
   const batch = db.batch();
-  const employeeRef = db.collection('employees').doc(employeeId);
-  batch.delete(employeeRef);
-
-  // FIX: Use v8 compat syntax for query
-  const recordsQuery = recordsCol.where("employeeId", "==", employeeId);
-  const recordsSnapshot = await recordsQuery.get();
-  recordsSnapshot.forEach(recordDoc => {
-    batch.delete(recordDoc.ref);
-  });
-  
+  batch.delete(employeesCol.doc(id));
+  const records = await recordsCol.where("employeeId", "==", id).get();
+  records.forEach(doc => batch.delete(doc.ref));
   await batch.commit();
 };
 
-// --- Attendance Management ---
-export const getAttendanceRecords = async (): Promise<AttendanceRecord[]> => {
-    // FIX: Use v8 compat syntax for query
-    const q = recordsCol.orderBy('timestamp', 'desc');
-    const snapshot = await q.get();
-    return snapshot.docs.map(doc => ({...doc.data(), id: doc.id} as AttendanceRecord));
+export const getAttendanceRecords = async (companyId: string): Promise<AttendanceRecord[]> => {
+    const snapshot = await recordsCol.where('companyId', '==', companyId).get();
+    return snapshot.docs.map(doc => ({...doc.data(), id: doc.id} as AttendanceRecord))
+                   .sort((a, b) => b.timestamp - a.timestamp);
 };
 
+// Added missing getRecordsForEmployee function
 export const getRecordsForEmployee = async (employeeId: string): Promise<AttendanceRecord[]> => {
-    // Prevent fetching records for the test employee
-    if (employeeId === 'test-employee-id') {
-      return [];
-    }
-    // FIX: Use v8 compat syntax for query
-    const q = recordsCol.where('employeeId', '==', employeeId);
-    const snapshot = await q.get();
-    const records = snapshot.docs.map(doc => ({...doc.data(), id: doc.id} as AttendanceRecord));
-    // Sort client-side to avoid needing a composite index
-    return records.sort((a, b) => b.timestamp - a.timestamp);
+    const snapshot = await recordsCol.where('employeeId', '==', employeeId).get();
+    return snapshot.docs.map(doc => ({...doc.data(), id: doc.id} as AttendanceRecord))
+                   .sort((a, b) => b.timestamp - a.timestamp);
 };
 
 export const getLastRecordForEmployee = async (employeeId: string): Promise<AttendanceRecord | null> => {
-    // Prevent fetching records for the test employee
-    if (employeeId === 'test-employee-id') {
-      return null;
-    }
-    // FIX: Use v8 compat syntax for query
     const q = recordsCol.where('employeeId', '==', employeeId);
     const snapshot = await q.get();
-    if (snapshot.empty) {
-        return null;
-    }
-    // Sort client-side to get the latest record, avoiding a composite index
     const records = snapshot.docs.map(doc => ({...doc.data(), id: doc.id} as AttendanceRecord));
-    records.sort((a, b) => b.timestamp - a.timestamp);
-    return records.length > 0 ? records[0] : null;
+    return records.sort((a, b) => b.timestamp - a.timestamp)[0] || null;
 };
 
-// OPTIMIZED: Now accepts full Employee and Location objects to avoid re-fetching them.
 export const addAttendanceRecord = async (
   employee: Employee,
   location: Location,
@@ -315,104 +198,20 @@ export const addAttendanceRecord = async (
   coords: { latitude: number; longitude: number; accuracy: number },
   selfieImage?: string
 ): Promise<AttendanceRecord> => {
-  
-  // 1. Check Previous Record (We still need to fetch this to ensure data integrity, but it's 1 call)
   const lastRecord = await getLastRecordForEmployee(employee.id);
-
-  if (status === AttendanceStatus.CHECK_IN && lastRecord?.status === AttendanceStatus.CHECK_IN) {
-    throw new Error('Bạn đã check-in rồi. Vui lòng check-out trước.');
-  }
-  if (status === AttendanceStatus.CHECK_OUT && lastRecord?.status !== AttendanceStatus.CHECK_IN) {
-    throw new Error('Bạn chưa check-in. Vui lòng check-in trước.');
-  }
-
-  // 2. Validate Location (Data passed from arguments, no DB call)
-  if (employee.locationId && employee.locationId !== location.id) {
-      throw new Error('Mã QR không hợp lệ cho địa điểm làm việc của bạn.');
-  }
-  
-  if (location.requireSelfie && !selfieImage) {
-    throw new Error('Địa điểm này yêu cầu chụp ảnh selfie để chấm công.');
-  }
-  
-  const distance = haversineDistance(coords, { latitude: location.latitude, longitude: location.longitude });
-  
-  if (distance - coords.accuracy > location.radius) {
-      throw new Error(`Bạn đang ở quá xa địa điểm làm việc. (Khoảng cách: ${distance.toFixed(0)}m, bán kính cho phép: ${location.radius}m)`);
-  }
-
-  // 3. Validate Shift (Only fetch if needed)
-  let shiftName: string | undefined;
-  let isLate: boolean = false;
-  let isEarly: boolean = false;
-
-  if (employee.shiftId) {
-    const shiftSnap = await db.collection('shifts').doc(employee.shiftId).get();
-    if (shiftSnap.exists) {
-        const shift = { ...shiftSnap.data(), id: shiftSnap.id } as Shift;
-        shiftName = shift.name;
-        const now = new Date();
-        
-        const referenceDate = (status === AttendanceStatus.CHECK_OUT && lastRecord) 
-                                ? new Date(lastRecord.timestamp) 
-                                : now;
-
-        const getTimeForReferenceDate = (timeString: string): Date => {
-            const [hours, minutes] = timeString.split(':').map(Number);
-            const date = new Date(referenceDate);
-            date.setHours(hours, minutes, 0, 0);
-            return date;
-        };
-
-        const shiftStartTime = getTimeForReferenceDate(shift.startTime);
-        let shiftEndTime = getTimeForReferenceDate(shift.endTime);
-
-        if (shiftEndTime <= shiftStartTime) {
-            shiftEndTime.setDate(shiftEndTime.getDate() + 1);
-        }
-
-        const gracePeriodMinutes = 5; 
-        const checkInWindowMinutesBefore = 30;
-        
-        if (status === AttendanceStatus.CHECK_IN) {
-            const earliestCheckInTime = new Date(shiftStartTime.getTime() - checkInWindowMinutesBefore * 60000);
-            
-            if (now < earliestCheckInTime) {
-                throw new Error(`Bạn chỉ có thể check-in sớm nhất là ${checkInWindowMinutesBefore} phút trước khi ca bắt đầu.`);
-            }
-            if (now > shiftEndTime) {
-                throw new Error('Ca làm việc của bạn đã kết thúc. Không thể check-in.');
-            }
-            
-            const graceTime = new Date(shiftStartTime.getTime() + gracePeriodMinutes * 60000);
-            isLate = now > graceTime;
-        } else if (status === AttendanceStatus.CHECK_OUT) {
-             const checkOutWindowMinutesAfter = 120;
-            const latestCheckOutTime = new Date(shiftEndTime.getTime() + checkOutWindowMinutesAfter * 60000);
-
-            if (now > latestCheckOutTime) {
-                throw new Error('Đã quá muộn để check-out cho ca làm việc này.');
-            }
-            if (now < shiftStartTime) {
-                throw new Error('Bạn không thể check-out trước khi ca làm việc bắt đầu.');
-            }
-            isEarly = now < shiftEndTime;
-        }
-    }
-  }
+  if (status === AttendanceStatus.CHECK_IN && lastRecord?.status === AttendanceStatus.CHECK_IN) throw new Error('Đã check-in rồi.');
+  if (status === AttendanceStatus.CHECK_OUT && lastRecord?.status !== AttendanceStatus.CHECK_IN) throw new Error('Chưa check-in.');
 
   const recordToSave: Omit<AttendanceRecord, 'id'> = {
+    companyId: employee.companyId,
     employeeId: employee.id,
     employeeName: employee.name,
     username: employee.username,
     timestamp: Date.now(),
     status,
-    isLate,
-    isEarly,
     latitude: coords.latitude,
     longitude: coords.longitude,
     accuracy: coords.accuracy,
-    ...(shiftName && { shiftName }),
     ...(selfieImage && { selfieImage }),
   };
 
@@ -420,140 +219,59 @@ export const addAttendanceRecord = async (
   return { ...recordToSave, id: docRef.id } as AttendanceRecord;
 };
 
-// --- Request Management ---
-export const addAttendanceRequest = async (
-  employeeId: string,
-  type: AttendanceStatus,
-  reason: string,
-  evidenceImage: string
-): Promise<AttendanceRequest> => {
-  const employeeSnap = await db.collection('employees').doc(employeeId).get();
-  if (!employeeSnap.exists) throw new Error('Nhân viên không tồn tại.');
-  const employee = { ...employeeSnap.data(), id: employeeSnap.id } as Employee;
-
-  const requestToSave: Omit<AttendanceRequest, 'id'> = {
+export const addAttendanceRequest = async (employeeId: string, type: AttendanceStatus, reason: string, evidenceImage: string): Promise<AttendanceRequest> => {
+  const empSnap = await employeesCol.doc(employeeId).get();
+  const emp = empSnap.data() as Employee;
+  const req: Omit<AttendanceRequest, 'id'> = {
+    companyId: emp.companyId,
     employeeId,
-    employeeName: employee.name,
-    username: employee.username,
+    employeeName: emp.name,
+    username: emp.username,
     timestamp: Date.now(),
     type,
     reason,
     evidenceImage,
     status: RequestStatus.PENDING
   };
+  const docRef = await requestsCol.add(req);
+  return { ...req, id: docRef.id } as AttendanceRequest;
+};
 
-  const docRef = await requestsCol.add(requestToSave);
-  return { ...requestToSave, id: docRef.id } as AttendanceRequest;
-}
-
-export const getAttendanceRequests = async (): Promise<AttendanceRequest[]> => {
-    const q = requestsCol.orderBy('timestamp', 'desc');
-    const snapshot = await q.get();
-    return snapshot.docs.map(doc => ({...doc.data(), id: doc.id} as AttendanceRequest));
-}
-
-export const updateAttendanceRequestStatus = async (requestId: string, status: RequestStatus): Promise<void> => {
-    await requestsCol.doc(requestId).update({ status });
-}
+export const getAttendanceRequests = async (companyId: string): Promise<AttendanceRequest[]> => {
+    const snapshot = await requestsCol.where('companyId', '==', companyId).get();
+    return snapshot.docs.map(doc => ({...doc.data(), id: doc.id} as AttendanceRequest))
+                   .sort((a, b) => b.timestamp - a.timestamp);
+};
 
 export const processAttendanceRequest = async (request: AttendanceRequest, action: 'approve' | 'reject'): Promise<void> => {
-    try {
-        if (action === 'reject') {
-            await updateAttendanceRequestStatus(request.id, RequestStatus.REJECTED);
-            return;
-        }
-
-        // Approve: Create a manual attendance record
-        const employeeSnap = await db.collection('employees').doc(request.employeeId).get();
-        if (!employeeSnap.exists) throw new Error('Nhân viên không tồn tại.');
-        const employee = { ...employeeSnap.data(), id: employeeSnap.id } as Employee;
-
-        let shiftName: string | undefined;
-        let isLate: boolean = false;
-        let isEarly: boolean = false;
-
-        if (employee.shiftId) {
-            const shiftSnap = await db.collection('shifts').doc(employee.shiftId).get();
-            if (shiftSnap.exists) {
-                const shift = { ...shiftSnap.data(), id: shiftSnap.id } as Shift;
-                shiftName = shift.name;
-                
-                const requestTime = new Date(request.timestamp);
-                const getTimeForReferenceDate = (timeString: string): Date => {
-                    const [hours, minutes] = timeString.split(':').map(Number);
-                    const date = new Date(requestTime);
-                    date.setHours(hours, minutes, 0, 0);
-                    return date;
-                };
-
-                const shiftStartTime = getTimeForReferenceDate(shift.startTime);
-                let shiftEndTime = getTimeForReferenceDate(shift.endTime);
-                if (shiftEndTime <= shiftStartTime) {
-                    shiftEndTime.setDate(shiftEndTime.getDate() + 1);
-                }
-                
-                const gracePeriodMinutes = 5;
-                if (request.type === AttendanceStatus.CHECK_IN) {
-                    const graceTime = new Date(shiftStartTime.getTime() + gracePeriodMinutes * 60000);
-                    isLate = requestTime > graceTime;
-                } else {
-                    isEarly = requestTime < shiftEndTime;
-                }
-            }
-        }
-
-        const recordToSave: Omit<AttendanceRecord, 'id'> = {
-            employeeId: request.employeeId,
-            employeeName: request.employeeName,
-            username: request.username,
-            timestamp: request.timestamp, // Use the request time, not current time
-            status: request.type,
-            isLate,
-            isEarly,
-            shiftName,
-            selfieImage: request.evidenceImage,
-            isManualEntry: true
-        };
-
-        const batch = db.batch();
-        const newRecordRef = recordsCol.doc();
-        batch.set(newRecordRef, recordToSave);
-        const requestRef = requestsCol.doc(request.id);
-        batch.update(requestRef, { status: RequestStatus.APPROVED });
-        
-        await batch.commit();
-    } catch (error: any) {
-        console.error("Process Request Error:", error);
-        // Improve error message for permission issues
-        if (error.code === 'permission-denied') {
-            throw new Error("Lỗi quyền truy cập (permission-denied). Hệ thống chưa được phép ghi dữ liệu chấm công hoặc cập nhật yêu cầu. Vui lòng kiểm tra Firestore Rules.");
-        }
-        throw error;
+    if (action === 'reject') {
+        await requestsCol.doc(request.id).update({ status: RequestStatus.REJECTED });
+        return;
     }
-}
-
-
-// --- Data Fetching ---
-export const getInitialData = async () => {
-    let requestsError: any = null;
-
-    const fetchRequestsSafe = async () => {
-        try {
-            return await getAttendanceRequests();
-        } catch (error) {
-            console.warn("Failed to fetch attendance requests.", error);
-            requestsError = error;
-            return [] as AttendanceRequest[];
-        }
+    const batch = db.batch();
+    const record: Omit<AttendanceRecord, 'id'> = {
+        companyId: request.companyId,
+        employeeId: request.employeeId,
+        employeeName: request.employeeName,
+        username: request.username,
+        timestamp: request.timestamp,
+        status: request.type,
+        selfieImage: request.evidenceImage,
+        isManualEntry: true
     };
+    batch.set(recordsCol.doc(), record);
+    batch.update(requestsCol.doc(request.id), { status: RequestStatus.APPROVED });
+    await batch.commit();
+};
 
+export const getInitialData = async (companyId: string) => {
     const [employees, records, shifts, locations, jobTitles, requests] = await Promise.all([
-        getEmployees(),
-        getAttendanceRecords(),
-        getShifts(),
-        getLocations(),
-        getJobTitles(),
-        fetchRequestsSafe(),
+        getEmployees(companyId),
+        getAttendanceRecords(companyId),
+        getShifts(companyId),
+        getLocations(companyId),
+        getJobTitles(companyId),
+        getAttendanceRequests(companyId),
     ]);
-    return { employees, records, shifts, locations, jobTitles, requests, requestsError };
+    return { employees, records, shifts, locations, jobTitles, requests, requestsError: null };
 };

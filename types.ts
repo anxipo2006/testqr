@@ -1,40 +1,58 @@
 
+export interface Company {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
 export interface Location {
   id: string;
+  companyId: string;
   name: string;
   latitude: number;
   longitude: number;
-  radius: number; // in meters
+  radius: number; 
   requireSelfie?: boolean;
 }
 
 export interface Shift {
   id: string;
+  companyId: string;
   name: string;
-  startTime: string; // "HH:mm"
-  endTime: string;   // "HH:mm"
+  startTime: string; 
+  endTime: string;   
 }
 
 export interface JobTitle {
   id: string;
+  companyId: string;
   name: string;
-  hourlyRate: number; // VND per hour
+  hourlyRate: number;
 }
 
 export interface Employee {
   id: string;
-  username: string; // Unique login identifier
-  password: string; // Hashing should be used in a real app
-  name: string; // Display name
-  deviceCode: string; // 5-character unique device/account identifier
-  shiftId?: string | null; // Optional link to a Shift, allow null for "no shift"
-  locationId?: string | null; // Optional link to a Location, allow null for "no location"
-  jobTitleId?: string | null; // Optional link to a JobTitle
-  faceDescriptor?: string; // JSON stringified array of face descriptor numbers
+  companyId: string;
+  username: string; 
+  password: string; 
+  name: string; 
+  deviceCode: string; 
+  shiftId?: string | null;
+  locationId?: string | null;
+  jobTitleId?: string | null;
+  faceDescriptor?: string;
 }
 
-// FIX: Add CurrentUser type definition here to be shared across the app.
-export type CurrentUser = Employee | { id: 'admin'; name: 'Admin', username: 'admin' };
+export interface AdminAccount {
+  id: string;
+  companyId: string; // "super" if super admin
+  username: string;
+  password: string;
+  name: string;
+  role: 'SUPER_ADMIN' | 'COMPANY_ADMIN';
+}
+
+export type CurrentUser = Employee | AdminAccount;
 
 export enum AttendanceStatus {
   CHECK_IN = 'CHECK_IN',
@@ -43,19 +61,20 @@ export enum AttendanceStatus {
 
 export interface AttendanceRecord {
   id: string;
+  companyId: string;
   employeeId: string;
   employeeName: string;
-  username: string; // Replaced employeeCode
+  username: string;
   timestamp: number;
   status: AttendanceStatus;
-  shiftName?: string; // To display in logs
+  shiftName?: string;
   isLate?: boolean;
   isEarly?: boolean;
   latitude?: number;
   longitude?: number;
   accuracy?: number;
-  selfieImage?: string; // Base64 encoded image
-  isManualEntry?: boolean; // Flag for records created via request approval
+  selfieImage?: string;
+  isManualEntry?: boolean;
 }
 
 export enum RequestStatus {
@@ -66,23 +85,24 @@ export enum RequestStatus {
 
 export interface AttendanceRequest {
   id: string;
+  companyId: string;
   employeeId: string;
   employeeName: string;
   username: string;
   timestamp: number;
-  type: AttendanceStatus; // Requesting to Check-in or Check-out
+  type: AttendanceStatus;
   reason: string;
-  evidenceImage: string; // Required photo evidence
+  evidenceImage: string;
   status: RequestStatus;
 }
 
-// --- F&B / POS Types ---
-
+// F&B Types
 export interface Product {
   id: string;
+  companyId: string;
   name: string;
   price: number;
-  category: string; // e.g., "Coffee", "Tea", "Cake"
+  category: string;
   imageUrl?: string;
   isAvailable: boolean;
 }
@@ -96,20 +116,21 @@ export interface OrderItem {
 }
 
 export enum OrderStatus {
-  PENDING = 'PENDING',       // Mới tạo
-  PREPARING = 'PREPARING',   // Đang làm
-  COMPLETED = 'COMPLETED',   // Đã xong
-  CANCELLED = 'CANCELLED'    // Hủy
+  PENDING = 'PENDING',
+  PREPARING = 'PREPARING',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED'
 }
 
 export interface Order {
   id: string;
+  companyId: string;
   timestamp: number;
   items: OrderItem[];
   totalAmount: number;
   status: OrderStatus;
   paymentMethod: 'CASH' | 'TRANSFER';
-  staffId?: string; // Who created the order
+  staffId?: string;
   staffName?: string;
-  tableNumber?: string; // Optional table tracking
+  tableNumber?: string;
 }

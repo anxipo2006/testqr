@@ -152,18 +152,18 @@ const HorizontalBarChart = ({ data }: { data: { label: string, value: number, su
 
 // --- ANALYTICS COMPONENT ---
 
-export const RevenueReport: React.FC = () => {
+export const RevenueReport: React.FC<{ companyId: string }> = ({ companyId }) => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [timeRange, setTimeRange] = useState<'today' | 'week' | 'month'>('week');
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [companyId]);
 
     const loadData = async () => {
         setIsLoading(true);
-        const data = await getAllOrdersHistory();
+        const data = await getAllOrdersHistory(companyId);
         setOrders(data);
         setIsLoading(false);
     };
@@ -226,29 +226,23 @@ export const RevenueReport: React.FC = () => {
                      revenueData[d-1] += o.totalAmount;
                  }
              });
-             // Clean up labels to match data length for AreaChart logic if needed, 
-             // but AreaChart generates points based on data length.
         }
 
-        // General Stats (Filtered Scope)
         const completedOrders = filteredOrders.filter(o => o.status === OrderStatus.COMPLETED);
         const totalRevenue = completedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
         const totalCount = filteredOrders.length;
         const avgOrderValue = completedOrders.length ? totalRevenue / completedOrders.length : 0;
 
-        // 1. Payment Methods
         const paymentMap = {'CASH': 0, 'TRANSFER': 0};
         completedOrders.forEach(o => {
             if (o.paymentMethod === 'CASH') paymentMap['CASH']++;
-            else paymentMap['TRANSFER']++; // Assuming all else is transfer or fallback
-            // Alternatively count by Amount: paymentMap[o.paymentMethod] += o.totalAmount;
+            else paymentMap['TRANSFER']++;
         });
         const paymentData = [
             { label: 'Tiền mặt', value: paymentMap['CASH'], color: '#3b82f6' },
             { label: 'Chuyển khoản', value: paymentMap['TRANSFER'], color: '#10b981' }
         ];
 
-        // 2. Staff Performance
         const staffMap = new Map<string, number>();
         completedOrders.forEach(o => {
             const name = o.staffName || 'Unknown';
@@ -259,7 +253,6 @@ export const RevenueReport: React.FC = () => {
             .sort((a, b) => b.value - a.value)
             .slice(0, 5);
 
-        // 3. Top Products
         const productMap = new Map<string, {qty: number, rev: number}>();
         completedOrders.forEach(o => {
             o.items.forEach(i => {
@@ -272,7 +265,6 @@ export const RevenueReport: React.FC = () => {
             .sort((a, b) => b.value - a.value)
             .slice(0, 5);
 
-        // 4. Order Status
         const statusMap = { [OrderStatus.COMPLETED]: 0, [OrderStatus.CANCELLED]: 0, 'OTHER': 0 };
         filteredOrders.forEach(o => {
              if (o.status === OrderStatus.COMPLETED) statusMap[OrderStatus.COMPLETED]++;
@@ -380,18 +372,18 @@ export const RevenueReport: React.FC = () => {
     );
 };
 
-export const InvoiceManagement: React.FC = () => {
+export const InvoiceManagement: React.FC<{ companyId: string }> = ({ companyId }) => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [companyId]);
 
     const loadData = async () => {
         setIsLoading(true);
-        const data = await getAllOrdersHistory();
+        const data = await getAllOrdersHistory(companyId);
         setOrders(data);
         setIsLoading(false);
     };
