@@ -51,6 +51,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ admin, onLogout, onImpe
   
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [enrollingEmployee, setEnrollingEmployee] = useState<Employee | null>(null);
+  const [editingLocation, setEditingLocation] = useState<Location | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   const loadData = async () => {
@@ -90,6 +91,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ admin, onLogout, onImpe
     loadData();
   };
 
+  const handleUpdateLocation = async (id: string, updates: Partial<Location>) => {
+    await updateLocation(id, updates);
+    setEditingLocation(null);
+    loadData();
+  }
+
   const handleAddJobTitle = async (name: string, rate: number) => {
     await addJobTitle(admin.companyId, name, rate);
     loadData();
@@ -101,7 +108,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ admin, onLogout, onImpe
       case 'timesheet': return <AttendanceTimesheet employees={employees} records={records} />;
       case 'employees': return <EmployeeManagement employees={employees} shifts={shifts} locations={locations} jobTitles={jobTitles} onAddEmployee={handleAddEmployee} onDeleteEmployee={async (id:string) => { await deleteEmployee(id); loadData(); }} onImpersonate={onImpersonate} onEnrollFace={setEnrollingEmployee} onEditEmployee={setEditingEmployee} />;
       case 'shifts': return <ShiftManagement shifts={shifts} onAddShift={handleAddShift} onDeleteShift={async (id:string) => { await deleteShift(id); loadData(); }} />;
-      case 'locations': return <LocationManagement locations={locations} onAddLocation={handleAddLocation} onDeleteLocation={async (id:string) => { await deleteLocation(id); loadData(); }} />;
+      case 'locations': return <LocationManagement locations={locations} onAddLocation={handleAddLocation} onDeleteLocation={async (id:string) => { await deleteLocation(id); loadData(); }} onEditLocation={setEditingLocation} />;
       case 'jobTitles': return <JobTitleManagement jobTitles={jobTitles} onAddJobTitle={handleAddJobTitle} />;
       case 'qrcode': return <QRCodeGenerator locations={locations} />;
       case 'requests': return <RequestManagement requests={requests} onProcess={async (req, action) => { await processAttendanceRequest(req, action); loadData(); }} onViewImage={setViewingImage} error={null} />;
@@ -138,6 +145,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ admin, onLogout, onImpe
       </nav>
       <main className="flex-1 p-10 overflow-y-auto">{renderContent()}</main>
       {enrollingEmployee && <FaceEnrollmentModal employee={enrollingEmployee} onClose={() => setEnrollingEmployee(null)} onSave={async (id, up) => { await updateEmployee(id, up); loadData(); }} />}
+      {editingLocation && <EditLocationModal location={editingLocation} onClose={() => setEditingLocation(null)} onSave={handleUpdateLocation} />}
     </div>
   );
 };
@@ -227,6 +235,14 @@ const EmployeeManagement: React.FC<any> = ({ employees, shifts, locations, jobTi
                             <option value="">-- Chọn Ca --</option>
                             {shifts.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
+                        <select className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white" value={newEmployee.locationId} onChange={e => setNewEmployee({...newEmployee, locationId: e.target.value})}>
+                            <option value="">-- Chọn Địa điểm --</option>
+                            {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                        </select>
+                         <select className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white" value={newEmployee.jobTitleId} onChange={e => setNewEmployee({...newEmployee, jobTitleId: e.target.value})}>
+                            <option value="">-- Chọn Chức vụ --</option>
+                            {jobTitles.map((j: any) => <option key={j.id} value={j.id}>{j.name}</option>)}
+                        </select>
                         <div className="flex justify-end gap-2 mt-4">
                             <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-500">Hủy</button>
                             <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded">Thêm</button>
@@ -271,34 +287,158 @@ const ShiftManagement: React.FC<any> = ({ shifts, onAddShift, onDeleteShift }) =
     )
 };
 
-const LocationManagement: React.FC<any> = ({ locations, onAddLocation, onDeleteLocation }) => {
+const LocationManagement: React.FC<any> = ({ locations, onAddLocation, onDeleteLocation, onEditLocation }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [newLoc, setNewLoc] = useState({ name: '', lat: '', lng: '', radius: '100' });
+    const [isFetching, setIsFetching] = useState(false);
+    const [newLoc, setNewLoc] = useState({ name: '', lat: '', lng: '', radius: '100', requireSelfie: false });
+
+    const handleGetCurrentLocation = () => {
+        setIsFetching(true);
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                setNewLoc(prev => ({
+                    ...prev,
+                    lat: pos.coords.latitude.toString(),
+                    lng: pos.coords.longitude.toString()
+                }));
+                setIsFetching(false);
+            },
+            (err) => {
+                alert("Không thể lấy vị trí: " + err.message);
+                setIsFetching(false);
+            },
+            { enableHighAccuracy: true }
+        );
+    };
+
     return (
         <div className="space-y-6">
              <button onClick={() => setIsModalOpen(true)} className="bg-primary-600 text-white px-4 py-2 rounded-md">Thêm địa điểm</button>
              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {locations.map((loc: Location) => (
                     <div key={loc.id} className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-                        <h3 className="font-bold dark:text-white mb-2">{loc.name}</h3>
-                        <p className="text-xs text-gray-500">R: {loc.radius}m | Lat: {loc.latitude}</p>
-                        <button onClick={() => onDeleteLocation(loc.id)} className="mt-4 text-red-500 text-xs">Xóa</button>
+                        <div className="flex justify-between items-start mb-2">
+                            <h3 className="font-bold dark:text-white">{loc.name}</h3>
+                            {loc.requireSelfie && <CameraIcon className="h-4 w-4 text-blue-500" />}
+                        </div>
+                        <p className="text-xs text-gray-500">Bán kính: {loc.radius}m</p>
+                        <p className="text-[10px] font-mono text-gray-400">Lat: {loc.latitude}</p>
+                        <p className="text-[10px] font-mono text-gray-400">Lng: {loc.longitude}</p>
+                        <div className="mt-4 flex gap-2">
+                            <button onClick={() => onEditLocation(loc)} className="text-blue-500 text-xs">Sửa</button>
+                            <button onClick={() => onDeleteLocation(loc.id)} className="text-red-500 text-xs">Xóa</button>
+                        </div>
                     </div>
                 ))}
              </div>
              {isModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <form onSubmit={(e)=>{e.preventDefault(); onAddLocation({name:newLoc.name, latitude:parseFloat(newLoc.lat), longitude:parseFloat(newLoc.lng), radius:parseFloat(newLoc.radius)}); setIsModalOpen(false);}} className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md space-y-3">
+                    <form onSubmit={(e)=>{e.preventDefault(); onAddLocation({name:newLoc.name, latitude:parseFloat(newLoc.lat), longitude:parseFloat(newLoc.lng), radius:parseFloat(newLoc.radius), requireSelfie: newLoc.requireSelfie}); setIsModalOpen(false);}} className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md space-y-4">
                         <h3 className="text-lg font-bold">Thêm Địa điểm</h3>
-                        <input placeholder="Tên" className="w-full p-2 border rounded dark:bg-gray-700" value={newLoc.name} onChange={e => setNewLoc({...newLoc, name: e.target.value})} required />
-                        <input placeholder="Vĩ độ" className="w-full p-2 border rounded dark:bg-gray-700" value={newLoc.lat} onChange={e => setNewLoc({...newLoc, lat: e.target.value})} required />
-                        <input placeholder="Kinh độ" className="w-full p-2 border rounded dark:bg-gray-700" value={newLoc.lng} onChange={e => setNewLoc({...newLoc, lng: e.target.value})} required />
-                        <button type="submit" className="w-full py-2 bg-primary-600 text-white rounded">Lưu</button>
+                        <input placeholder="Tên địa điểm (Vd: Văn phòng chính)" className="w-full p-2 border rounded dark:bg-gray-700" value={newLoc.name} onChange={e => setNewLoc({...newLoc, name: e.target.value})} required />
+                        
+                        <div className="space-y-2">
+                            <div className="flex gap-2">
+                                <input placeholder="Vĩ độ (Lat)" className="flex-1 p-2 border rounded dark:bg-gray-700 font-mono text-sm" value={newLoc.lat} onChange={e => setNewLoc({...newLoc, lat: e.target.value})} required />
+                                <input placeholder="Kinh độ (Lng)" className="flex-1 p-2 border rounded dark:bg-gray-700 font-mono text-sm" value={newLoc.lng} onChange={e => setNewLoc({...newLoc, lng: e.target.value})} required />
+                            </div>
+                            <button 
+                                type="button" 
+                                onClick={handleGetCurrentLocation}
+                                disabled={isFetching}
+                                className="w-full py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors"
+                            >
+                                {isFetching ? <LoadingIcon className="h-4 w-4" /> : <MapPinIcon className="h-4 w-4" />}
+                                {isFetching ? "Đang lấy GPS..." : "Lấy vị trí hiện tại của tôi (GPS)"}
+                            </button>
+                        </div>
+
+                        <div className="flex gap-2 items-center">
+                            <input type="number" placeholder="Bán kính (mét)" className="flex-1 p-2 border rounded dark:bg-gray-700" value={newLoc.radius} onChange={e => setNewLoc({...newLoc, radius: e.target.value})} required />
+                            <div className="flex items-center gap-2">
+                                <input type="checkbox" id="reqS" checked={newLoc.requireSelfie} onChange={e => setNewLoc({...newLoc, requireSelfie: e.target.checked})} />
+                                <label htmlFor="reqS" className="text-xs">Y/c Selfie</label>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-2 pt-2">
+                             <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2 bg-gray-200 rounded text-gray-800">Hủy</button>
+                             <button type="submit" className="flex-1 py-2 bg-primary-600 text-white rounded">Lưu địa điểm</button>
+                        </div>
                     </form>
                 </div>
             )}
         </div>
     )
+};
+
+const EditLocationModal: React.FC<{ location: Location, onClose: () => void, onSave: (id: string, updates: Partial<Location>) => Promise<void> }> = ({ location, onClose, onSave }) => {
+    const [name, setName] = useState(location.name);
+    const [lat, setLat] = useState(location.latitude.toString());
+    const [lng, setLng] = useState(location.longitude.toString());
+    const [radius, setRadius] = useState(location.radius.toString());
+    const [requireSelfie, setRequireSelfie] = useState(location.requireSelfie || false);
+    const [isFetching, setIsFetching] = useState(false);
+
+    const handleGetCurrentLocation = () => {
+        setIsFetching(true);
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                setLat(pos.coords.latitude.toString());
+                setLng(pos.coords.longitude.toString());
+                setIsFetching(false);
+            },
+            (err) => {
+                alert("Lỗi GPS: " + err.message);
+                setIsFetching(false);
+            },
+            { enableHighAccuracy: true }
+        );
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        await onSave(location.id, { 
+            name, 
+            latitude: parseFloat(lat), 
+            longitude: parseFloat(lng), 
+            radius: parseFloat(radius), 
+            requireSelfie 
+        });
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md space-y-4">
+                <h3 className="text-lg font-bold">Sửa Địa điểm</h3>
+                <input placeholder="Tên địa điểm" className="w-full p-2 border rounded dark:bg-gray-700" value={name} onChange={e => setName(e.target.value)} required />
+                
+                <div className="space-y-2">
+                    <div className="flex gap-2">
+                        <input placeholder="Vĩ độ" className="flex-1 p-2 border rounded dark:bg-gray-700 font-mono text-sm" value={lat} onChange={e => setLat(e.target.value)} required />
+                        <input placeholder="Kinh độ" className="flex-1 p-2 border rounded dark:bg-gray-700 font-mono text-sm" value={lng} onChange={e => setLng(e.target.value)} required />
+                    </div>
+                    <button type="button" onClick={handleGetCurrentLocation} disabled={isFetching} className="w-full py-2 bg-gray-100 dark:bg-gray-700 rounded text-xs flex items-center justify-center gap-2">
+                        {isFetching ? <LoadingIcon className="h-4 w-4" /> : <MapPinIcon className="h-4 w-4" />}
+                        Cập nhật tọa độ GPS hiện tại
+                    </button>
+                </div>
+
+                <div className="flex gap-2 items-center">
+                    <input type="number" placeholder="Bán kính (m)" className="flex-1 p-2 border rounded dark:bg-gray-700" value={radius} onChange={e => setRadius(e.target.value)} required />
+                    <div className="flex items-center gap-2">
+                        <input type="checkbox" id="reqES" checked={requireSelfie} onChange={e => setRequireSelfie(e.target.checked)} />
+                        <label htmlFor="reqES" className="text-xs">Selfie</label>
+                    </div>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                     <button type="button" onClick={onClose} className="flex-1 py-2 bg-gray-200 rounded">Hủy</button>
+                     <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded">Cập nhật</button>
+                </div>
+            </form>
+        </div>
+    );
 };
 
 const JobTitleManagement: React.FC<any> = ({ jobTitles, onAddJobTitle }) => {
