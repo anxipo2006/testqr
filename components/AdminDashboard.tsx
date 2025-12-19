@@ -6,12 +6,10 @@ import {
   updateEmployee,
   addShift,
   deleteShift,
-  updateShift,
   addLocation,
   updateLocation,
   deleteLocation,
   addJobTitle,
-  updateJobTitle,
   getInitialData,
   processAttendanceRequest,
   subscribeToRecentRecords
@@ -20,8 +18,8 @@ import { loadFaceModels, detectFace } from '../services/faceService';
 import type { Employee, AttendanceRecord, Shift, Location, JobTitle, AttendanceRequest, AdminAccount } from '../types';
 import { AttendanceStatus, RequestStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
-import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon, CurrencyDollarIcon, TagIcon, EyeIcon, InboxStackIcon, ExclamationTriangleIcon, CubeIcon, ClipboardDocumentListIcon, CheckCircleIcon, ChartBarIcon, ReceiptPercentIcon, PlusIcon, ShoppingBagIcon } from './icons';
-import { formatTimestamp, formatTimeToHHMM, calculateHours } from '../utils/date';
+import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, InboxStackIcon, CubeIcon, CheckCircleIcon, ChartBarIcon, PlusIcon, ShoppingBagIcon } from './icons';
+import { formatTimestamp } from '../utils/date';
 import { MenuManager, OrderList } from './FnbManagement';
 import { RevenueReport, InvoiceManagement } from './FnbAnalytics';
 
