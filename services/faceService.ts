@@ -28,7 +28,9 @@ export const detectFace = async (imageElement: HTMLImageElement | HTMLVideoEleme
     if (!isModelLoaded) await loadFaceModels();
     
     // TỐI ƯU HÓA QUAN TRỌNG:
-    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 });
+    // Tăng inputSize từ 160 lên 320 để nhận diện chính xác hơn.
+    // 160 quá nhỏ dẫn đến sai số cao (ai cũng giống ai).
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
     
     const detection = await faceapi.detectSingleFace(imageElement, options)
         .withFaceLandmarks()
@@ -68,7 +70,7 @@ export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: 
     ctx.font = 'bold 16px sans-serif';
     ctx.textAlign = 'center';
     
-    let text = isMatch ? "Khuôn mặt hợp lệ" : "Không khớp";
+    let text = isMatch ? "Khuôn mặt hợp lệ" : "Không đúng người";
     if (isMatch && livenessPrompt) {
         text = livenessPrompt; // Hiển thị yêu cầu: Cười lên, Quay trái...
     }
@@ -78,6 +80,7 @@ export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: 
 
 // Hàm tính khoảng cách Euclidean thuần túy
 function euclideanDistance(descriptor1: Float32Array, descriptor2: Float32Array): number {
+    if (descriptor1.length !== descriptor2.length) return 1.0; // Fail safe
     let sum = 0;
     for (let i = 0; i < descriptor1.length; i++) {
         const diff = descriptor1[i] - descriptor2[i];
@@ -90,11 +93,18 @@ export const matchFace = async (liveDescriptor: Float32Array, storedDescriptorSt
     if (!storedDescriptorStr) return { isMatch: false, distance: 1 };
 
     try {
-        const storedDescriptor = new Float32Array(Object.values(JSON.parse(storedDescriptorStr)));
+        // Parse an toàn hơn: Xử lý cả trường hợp mảng JSON lẫn Object Firebase
+        const parsed = JSON.parse(storedDescriptorStr);
+        const storedDescriptor = new Float32Array(Array.isArray(parsed) ? parsed : Object.values(parsed));
+        
         const distance = euclideanDistance(liveDescriptor, storedDescriptor);
         
-        // Ngưỡng (Threshold): 0.5
-        const threshold = 0.5;
+        // Ngưỡng (Threshold): 
+        // 0.6 là chuẩn. 0.5 là khá chặt. 
+        // Đặt 0.45 để đảm bảo không nhận nhầm người lạ (chấp nhận việc nhân viên chính chủ có thể phải thử lại 1-2 lần)
+        const threshold = 0.45;
+
+        // console.log("Distance:", distance); // Debug distance
 
         return {
             isMatch: distance < threshold,
@@ -130,13 +140,12 @@ export const checkLivenessAction = (detection: any, action: LivenessAction): boo
     const ratio = distToLeft / distToRight;
 
     if (action === 'turnLeft') {
-        // Quay trái (theo góc nhìn camera/gương): Mũi sẽ gần má trái (trong ảnh) hơn má phải
-        // Thực tế: Khi người dùng quay trái thật, trong gương (video flip) mũi sẽ di chuyển về phía trái màn hình.
-        // Logic: Khoảng cách bên trái nhỏ hơn bên phải đáng kể.
+        // Quay trái: Mũi gần má trái hơn (ratio < 1)
         return ratio < 0.6; 
     }
 
     if (action === 'turnRight') {
+        // Quay phải: Mũi gần má phải hơn (ratio > 1)
         return ratio > 1.6;
     }
 
