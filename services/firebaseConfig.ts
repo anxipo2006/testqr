@@ -16,7 +16,7 @@ const firebaseConfig = {
 
 // Khởi tạo Firebase (Singleton)
 if (!firebase.apps.length) {
-  const app = firebase.initializeApp(firebaseConfig);
+  firebase.initializeApp(firebaseConfig);
   // Khởi tạo Analytics nếu chạy ở môi trường browser
   if (typeof window !== 'undefined') {
     firebase.analytics();

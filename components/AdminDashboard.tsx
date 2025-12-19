@@ -306,6 +306,13 @@ const EditEmployeeModal: React.FC<{ employee: Employee, shifts: Shift[], locatio
                             {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
                         </select>
                     </div>
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 block mb-1 uppercase">Chức vụ</label>
+                        <select className="w-full p-2 border rounded dark:bg-gray-700 dark:text-white" value={jobTitleId} onChange={e => setJobTitleId(e.target.value)}>
+                            <option value="">-- Không phân chức vụ --</option>
+                            {jobTitles.map((j: any) => <option key={j.id} value={j.id}>{j.name}</option>)}
+                        </select>
+                    </div>
                 </div>
                 <div className="flex justify-end gap-2 pt-4">
                     <button type="button" onClick={onClose} className="px-4 py-2 text-gray-500">Hủy</button>

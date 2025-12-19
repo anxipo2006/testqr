@@ -198,7 +198,6 @@ export const getLastRecordForEmployee = async (employeeId: string): Promise<Atte
 
 export const addAttendanceRecord = async (
   employee: Employee,
-  location: Location,
   status: AttendanceStatus,
   coords: { latitude: number; longitude: number; accuracy: number },
   selfieImage?: string
@@ -213,7 +212,7 @@ export const addAttendanceRecord = async (
     latitude: coords.latitude,
     longitude: coords.longitude,
     accuracy: coords.accuracy,
-    selfieImage: selfieImage || null
+    selfieImage: selfieImage || undefined
   };
   const docRef = await recordsCol.add(newRecord);
   return { ...newRecord, id: docRef.id };

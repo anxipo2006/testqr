@@ -225,7 +225,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
         
         setProcessingMessage(`Đang xác thực ${nextActionText}...`);
         
-        const newRecord = await addAttendanceRecord(employee, location, nextAction, coords, selfie);
+        const newRecord = await addAttendanceRecord(employee, nextAction, coords, selfie);
 
         await onScanComplete();
         showResult('success', newRecord);

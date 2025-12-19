@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { getAllProducts, addProduct, updateProduct, deleteProduct, createOrder, subscribeToActiveOrders, updateOrderStatus } from '../services/posService';
 import type { Product, Order, OrderItem } from '../types';
 import { OrderStatus } from '../types';
-import { CubeIcon, PencilIcon, ShoppingBagIcon, LoadingIcon, BanknotesIcon, XCircleIcon, ArrowPathIcon, PrinterIcon, CheckCircleIcon } from './icons';
+import { CubeIcon, PencilIcon, ShoppingBagIcon, LoadingIcon, BanknotesIcon, XCircleIcon, PrinterIcon, CheckCircleIcon } from './icons';
 import { formatTimestamp } from '../utils/date';
 
 // --- Sub-components ---

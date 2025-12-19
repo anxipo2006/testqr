@@ -60,18 +60,22 @@ const SuperAdminDashboard: React.FC<{ onLogout: () => void }> = ({ onLogout }) =
              <h2 className="text-sm font-bold text-gray-500 uppercase">Công ty</h2>
              <button onClick={() => setShowAddCompany(true)} className="text-primary-600"><PlusIcon className="h-5 w-5"/></button>
           </div>
-          <ul className="space-y-2">
-            {companies.map(c => (
-              <li key={c.id}>
-                <button 
-                  onClick={() => handleSelectCompany(c)}
-                  className={`w-full text-left px-3 py-2 rounded-md text-sm ${selectedCompany?.id === c.id ? 'bg-primary-100 text-primary-700 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  {c.name}
-                </button>
-              </li>
-            ))}
-          </ul>
+          {isLoading ? (
+              <div className="flex justify-center p-4"><LoadingIcon className="h-6 w-6 text-primary-500" /></div>
+          ) : (
+              <ul className="space-y-2">
+                {companies.map(c => (
+                  <li key={c.id}>
+                    <button 
+                      onClick={() => handleSelectCompany(c)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm ${selectedCompany?.id === c.id ? 'bg-primary-100 text-primary-700 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      {c.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+          )}
         </div>
         <div className="p-4 border-t dark:border-gray-700">
            <button onClick={onLogout} className="flex items-center gap-2 text-red-600 text-sm font-bold"><LogoutIcon className="h-5 w-5"/> Đăng xuất</button>
