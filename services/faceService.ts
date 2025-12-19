@@ -14,6 +14,7 @@ export const loadFaceModels = async () => {
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+      faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL), // Load model cảm xúc để check cười
     ]);
     isModelLoaded = true;
     console.log("Face API Models Loaded");
@@ -27,24 +28,23 @@ export const detectFace = async (imageElement: HTMLImageElement | HTMLVideoEleme
     if (!isModelLoaded) await loadFaceModels();
     
     // TỐI ƯU HÓA QUAN TRỌNG:
-    // inputSize: 160 (giảm từ 224). Giúp xử lý nhanh hơn đáng kể trên mobile/tablet.
-    // scoreThreshold: 0.5. Chỉ nhận diện nếu chắc chắn > 50% là khuôn mặt.
     const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 });
     
     const detection = await faceapi.detectSingleFace(imageElement, options)
         .withFaceLandmarks()
+        .withFaceExpressions() // Lấy thêm thông tin biểu cảm
         .withFaceDescriptor();
         
     return detection;
 };
 
-// Hàm hỗ trợ resize kết quả detection để vẽ lên canvas (cho khớp với kích thước video hiển thị)
+// Hàm hỗ trợ resize kết quả detection để vẽ lên canvas
 export const resizeResults = (detection: any, size: { width: number, height: number }) => {
     return faceapi.resizeResults(detection, size);
 };
 
 // Hàm vẽ khung khuôn mặt
-export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: boolean) => {
+export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: boolean, livenessPrompt?: string) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
@@ -60,13 +60,20 @@ export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: 
     ctx.strokeRect(box.x, box.y, box.width, box.height);
 
     // Vẽ nền mờ cho chữ
-    ctx.fillStyle = isMatch ? '#10b981' : '#ef4444';
-    ctx.fillRect(box.x, box.y - 30, box.width, 30);
+    ctx.fillStyle = isMatch ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)';
+    ctx.fillRect(box.x, box.y - 40, box.width, 40);
 
-    // Vẽ chữ
+    // Vẽ chữ thông báo trạng thái
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 16px sans-serif';
-    ctx.fillText(isMatch ? "OK - Đang chấm công..." : "Không khớp", box.x + 10, box.y - 10);
+    ctx.textAlign = 'center';
+    
+    let text = isMatch ? "Khuôn mặt hợp lệ" : "Không khớp";
+    if (isMatch && livenessPrompt) {
+        text = livenessPrompt; // Hiển thị yêu cầu: Cười lên, Quay trái...
+    }
+    
+    ctx.fillText(text, box.x + box.width / 2, box.y - 15);
 };
 
 // Hàm tính khoảng cách Euclidean thuần túy
@@ -98,3 +105,40 @@ export const matchFace = async (liveDescriptor: Float32Array, storedDescriptorSt
         return { isMatch: false, distance: 1 };
     }
 }
+
+// --- LIVENESS CHECK LOGIC ---
+
+export type LivenessAction = 'smile' | 'turnLeft' | 'turnRight';
+
+export const checkLivenessAction = (detection: any, action: LivenessAction): boolean => {
+    if (!detection) return false;
+
+    if (action === 'smile') {
+        // Kiểm tra biểu cảm vui vẻ (happy) > 0.7
+        return detection.expressions.happy > 0.7;
+    }
+
+    const landmarks = detection.landmarks;
+    const nose = landmarks.getNose()[3]; // Đỉnh mũi
+    const jaw = landmarks.getJawOutline();
+    const leftJaw = jaw[0];
+    const rightJaw = jaw[16];
+
+    // Tính khoảng cách từ mũi đến 2 bên hàm
+    const distToLeft = Math.abs(nose.x - leftJaw.x);
+    const distToRight = Math.abs(nose.x - rightJaw.x);
+    const ratio = distToLeft / distToRight;
+
+    if (action === 'turnLeft') {
+        // Quay trái (theo góc nhìn camera/gương): Mũi sẽ gần má trái (trong ảnh) hơn má phải
+        // Thực tế: Khi người dùng quay trái thật, trong gương (video flip) mũi sẽ di chuyển về phía trái màn hình.
+        // Logic: Khoảng cách bên trái nhỏ hơn bên phải đáng kể.
+        return ratio < 0.6; 
+    }
+
+    if (action === 'turnRight') {
+        return ratio > 1.6;
+    }
+
+    return false;
+};
