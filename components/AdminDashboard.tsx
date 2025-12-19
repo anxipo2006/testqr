@@ -14,12 +14,13 @@ import {
   updateJobTitle,
   getInitialData,
   processAttendanceRequest,
+  subscribeToRecentRecords
 } from '../services/attendanceService';
 import { loadFaceModels, detectFace } from '../services/faceService';
 import type { Employee, AttendanceRecord, Shift, Location, JobTitle, AttendanceRequest, AdminAccount } from '../types';
 import { AttendanceStatus, RequestStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
-import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon, CurrencyDollarIcon, TagIcon, EyeIcon, InboxStackIcon, ExclamationTriangleIcon, CubeIcon, ClipboardDocumentListIcon, CheckCircleIcon, ChartBarIcon, ReceiptPercentIcon, PlusIcon } from './icons';
+import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, ArrowPathIcon, CurrencyDollarIcon, TagIcon, EyeIcon, InboxStackIcon, ExclamationTriangleIcon, CubeIcon, ClipboardDocumentListIcon, CheckCircleIcon, ChartBarIcon, ReceiptPercentIcon, PlusIcon, ShoppingBagIcon } from './icons';
 import { formatTimestamp, formatTimeToHHMM, calculateHours } from '../utils/date';
 import { MenuManager, OrderList } from './FnbManagement';
 import { RevenueReport, InvoiceManagement } from './FnbAnalytics';
@@ -72,6 +73,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ admin, onLogout, onImpe
 
   useEffect(() => {
     loadData();
+    
+    // Real-time subscription for records
+    const unsubscribe = subscribeToRecentRecords(admin.companyId, (newRecords) => {
+        setRecords(newRecords);
+    });
+    
+    return () => unsubscribe();
   }, [admin.companyId]);
 
   const handleUpdateEmployee = async (id: string, updates: Partial<Employee>) => {
@@ -116,12 +124,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ admin, onLogout, onImpe
         </div>
         <ul className="flex-grow p-2 space-y-1">
           <TabButton icon={<CalendarDaysIcon className="h-5 w-5"/>} label="Bảng chấm công" isActive={activeTab === 'timesheet'} onClick={() => setActiveTab('timesheet')} />
+          <TabButton icon={<ListBulletIcon className="h-5 w-5"/>} label="Nhật ký (Logs)" isActive={activeTab === 'logs'} onClick={() => setActiveTab('logs')} />
           <TabButton icon={<InboxStackIcon className="h-5 w-5"/>} label="Yêu cầu" isActive={activeTab === 'requests'} onClick={() => setActiveTab('requests')} />
           <TabButton icon={<UserGroupIcon className="h-5 w-5"/>} label="Nhân viên" isActive={activeTab === 'employees'} onClick={() => setActiveTab('employees')} />
           <TabButton icon={<ClockIcon className="h-5 w-5"/>} label="Ca làm việc" isActive={activeTab === 'shifts'} onClick={() => setActiveTab('shifts')} />
           <TabButton icon={<BuildingOffice2Icon className="h-5 w-5"/>} label="Địa điểm" isActive={activeTab === 'locations'} onClick={() => setActiveTab('locations')} />
           <TabButton icon={<QrCodeIcon className="h-5 w-5"/>} label="Mã QR" isActive={activeTab === 'qrcode'} onClick={() => setActiveTab('qrcode')} />
           <div className="border-t my-2 dark:border-gray-700"></div>
+          <TabButton icon={<ShoppingBagIcon className="h-5 w-5"/>} label="Bếp & Đơn hàng" isActive={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
           <TabButton icon={<ChartBarIcon className="h-5 w-5"/>} label="Báo cáo F&B" isActive={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
           <TabButton icon={<CubeIcon className="h-5 w-5"/>} label="Thực đơn" isActive={activeTab === 'menu'} onClick={() => setActiveTab('menu')} />
         </ul>
@@ -151,34 +161,43 @@ const TabButton: React.FC<{icon: React.ReactNode, label: string, isActive: boole
 
 const AttendanceLog: React.FC<{ records: AttendanceRecord[], onViewImage: (url: string) => void }> = ({ records, onViewImage }) => {
     return (
-      <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
-        <table className="min-w-full divide-y dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-700">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase">Nhân viên</th>
-              <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase">Thời gian</th>
-              <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase">Loại</th>
-              <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-widest">Detail</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y dark:divide-gray-700">
-            {records.map((record) => (
-              <tr key={record.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium dark:text-white">{record.employeeName}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{formatTimestamp(record.timestamp)}</td>
-                <td className="px-6 py-4">
-                   <span className={`px-2 py-1 text-xs font-bold rounded-full ${record.status === AttendanceStatus.CHECK_IN ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                    {record.status === AttendanceStatus.CHECK_IN ? 'Check-in' : 'Check-out'}
-                  </span>
-                </td>
-                <td className="px-6 py-4 flex gap-3">
-                   {record.latitude && <a href={`https://www.google.com/maps?q=${record.latitude},${record.longitude}`} target="_blank" rel="noreferrer" className="text-primary-600"><MapPinIcon className="h-5 w-5"/></a>}
-                   {record.selfieImage && <button onClick={() => onViewImage(record.selfieImage!)} className="text-primary-600"><CameraIcon className="h-5 w-5"/></button>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="space-y-4">
+        <h2 className="text-xl font-bold dark:text-white flex items-center gap-2">
+            Nhật ký chấm công
+            <span className="flex h-3 w-3 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+            </span>
+        </h2>
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
+            <table className="min-w-full divide-y dark:divide-gray-700">
+            <thead className="bg-gray-50 dark:bg-gray-700">
+                <tr>
+                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase">Nhân viên</th>
+                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase">Thời gian</th>
+                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase">Loại</th>
+                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-widest">Detail</th>
+                </tr>
+            </thead>
+            <tbody className="divide-y dark:divide-gray-700">
+                {records.map((record) => (
+                <tr key={record.id} className="animate-in slide-in-from-left-2 duration-300">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium dark:text-white">{record.employeeName}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{formatTimestamp(record.timestamp)}</td>
+                    <td className="px-6 py-4">
+                    <span className={`px-2 py-1 text-xs font-bold rounded-full ${record.status === AttendanceStatus.CHECK_IN ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                        {record.status === AttendanceStatus.CHECK_IN ? 'Check-in' : 'Check-out'}
+                    </span>
+                    </td>
+                    <td className="px-6 py-4 flex gap-3">
+                    {record.latitude && <a href={`https://www.google.com/maps?q=${record.latitude},${record.longitude}`} target="_blank" rel="noreferrer" className="text-primary-600"><MapPinIcon className="h-5 w-5"/></a>}
+                    {record.selfieImage && <button onClick={() => onViewImage(record.selfieImage!)} className="text-primary-600"><CameraIcon className="h-5 w-5"/></button>}
+                    </td>
+                </tr>
+                ))}
+            </tbody>
+            </table>
+        </div>
       </div>
     );
 };

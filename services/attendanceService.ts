@@ -57,7 +57,7 @@ export const login = async (
   credentials: { username?: string; password?: string; deviceCode?: string }
 ): Promise<CurrentUser | null> => {
   if (role === 'admin') {
-    if (credentials.username === 'an' && credentials.password === 'an123') {
+    if (credentials.username === 'superadmin' && credentials.password === 'super123') {
       return { id: 'super', companyId: 'super', name: 'Super Admin', username: 'superadmin', password: '', role: 'SUPER_ADMIN' };
     }
     
@@ -176,7 +176,6 @@ export const updateJobTitle = async (id: string, updates: Partial<JobTitle>): Pr
 
 // --- Attendance Records ---
 export const getRecordsForEmployee = async (employeeId: string, limit: number = 50): Promise<AttendanceRecord[]> => {
-  // Removed orderBy('timestamp', 'desc') to avoid index requirement
   const snapshot = await recordsCol.where('employeeId', '==', employeeId).get();
   
   // Sort client-side
@@ -189,16 +188,11 @@ export const getRecordsForEmployee = async (employeeId: string, limit: number = 
 };
 
 export const getLastRecordForEmployee = async (employeeId: string): Promise<AttendanceRecord | null> => {
-  // Removed orderBy and limit(1) to avoid index requirement
   const snapshot = await recordsCol.where('employeeId', '==', employeeId).get();
-  
   if (snapshot.empty) return null;
-  
-  // Find max timestamp client-side
   const records = snapshot.docs
     .map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRecord))
     .sort((a, b) => b.timestamp - a.timestamp);
-    
   return records[0] || null;
 };
 
@@ -225,9 +219,25 @@ export const addAttendanceRecord = async (
   return { ...newRecord, id: docRef.id };
 };
 
+// --- REAL-TIME SUBSCRIPTION for Admin Dashboard (Logs) ---
+export const subscribeToRecentRecords = (companyId: string, onUpdate: (records: AttendanceRecord[]) => void) => {
+    // Listen to all records for the company
+    // Sorting client-side to avoid index requirement
+    return recordsCol
+        .where('companyId', '==', companyId)
+        .onSnapshot(snapshot => {
+             const records = snapshot.docs
+                .map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRecord))
+                .sort((a, b) => b.timestamp - a.timestamp)
+                .slice(0, 500); // Only keep latest 500 in memory for the view
+             onUpdate(records);
+        }, error => {
+            console.error("Error subscribing to records:", error);
+        });
+}
+
 // --- Requests Management ---
 export const addAttendanceRequest = async (employeeId: string, type: AttendanceStatus, reason: string, evidenceImage: string): Promise<void> => {
-    // Lấy thông tin nhân viên để điền vào request
     const empDoc = await employeesCol.doc(employeeId).get();
     const empData = empDoc.data() as Employee;
     
@@ -250,7 +260,6 @@ export const processAttendanceRequest = async (request: AttendanceRequest, actio
     await requestsCol.doc(request.id).update({ status });
     
     if (action === 'approve') {
-        // Tự động tạo record chấm công khi duyệt yêu cầu
         const newRecord: Omit<AttendanceRecord, 'id'> = {
             companyId: request.companyId,
             employeeId: request.employeeId,
@@ -267,9 +276,6 @@ export const processAttendanceRequest = async (request: AttendanceRequest, actio
 
 // --- Dashboard Data Loader ---
 export const getInitialData = async (companyId: string) => {
-  // Use Promise.all to fetch data in parallel
-  // Note: orderBy('timestamp', 'desc') removed from records and requests queries
-  // to prevent "The query requires an index" error. Sorting is done client-side.
   const [emps, recsSnapshot, shfts, locs, jts, reqsSnapshot] = await Promise.all([
     getEmployees(companyId),
     recordsCol.where('companyId', '==', companyId).get(),
@@ -279,13 +285,11 @@ export const getInitialData = async (companyId: string) => {
     requestsCol.where('companyId', '==', companyId).get()
   ]);
 
-  // Client-side sort and limit for records
   const records = recsSnapshot.docs
     .map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRecord))
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 500);
 
-  // Client-side sort for requests
   const requests = reqsSnapshot.docs
     .map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRequest))
     .sort((a, b) => b.timestamp - a.timestamp);

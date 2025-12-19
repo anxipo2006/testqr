@@ -1,7 +1,9 @@
+
 import firebase from "firebase/compat/app";
 import "firebase/compat/firestore";
+import "firebase/compat/analytics";
 
-// Your web app's Firebase configuration
+// Cấu hình Firebase từ yêu cầu của bạn
 const firebaseConfig = {
   apiKey: "AIzaSyCDtSJOvvOcakG3ZzxAZcC8wwCHBJoSIxE",
   authDomain: "qrcheck-4db34.firebaseapp.com",
@@ -12,12 +14,14 @@ const firebaseConfig = {
   measurementId: "G-4PL87N83M7"
 };
 
-
-// Initialize Firebase
-// FIX: Use v8 compat library for initialization to fix import errors.
+// Khởi tạo Firebase (Singleton)
 if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
+  const app = firebase.initializeApp(firebaseConfig);
+  // Khởi tạo Analytics nếu chạy ở môi trường browser
+  if (typeof window !== 'undefined') {
+    firebase.analytics();
+  }
 }
 
-// Initialize Cloud Firestore and get a reference to the service
+// Export Firestore instance để dùng chung toàn app
 export const db = firebase.firestore();

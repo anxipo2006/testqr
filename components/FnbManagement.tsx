@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { getAllProducts, addProduct, updateProduct, deleteProduct, createOrder, getActiveOrders, updateOrderStatus } from '../services/posService';
+import { getAllProducts, addProduct, updateProduct, deleteProduct, createOrder, subscribeToActiveOrders, updateOrderStatus } from '../services/posService';
 import type { Product, Order, OrderItem } from '../types';
 import { OrderStatus } from '../types';
 import { CubeIcon, PencilIcon, ShoppingBagIcon, LoadingIcon, BanknotesIcon, XCircleIcon, ArrowPathIcon, PrinterIcon, CheckCircleIcon } from './icons';
@@ -528,29 +528,34 @@ const OrderList: React.FC<{ companyId: string }> = ({ companyId }) => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    const loadOrders = async () => {
-        setIsLoading(true);
-        const data = await getActiveOrders(companyId);
-        setOrders(data);
-        setIsLoading(false);
-    };
-
     useEffect(() => {
-        loadOrders();
-        const interval = setInterval(loadOrders, 30000); // Refresh every 30s
-        return () => clearInterval(interval);
+        setIsLoading(true);
+        // REAL-TIME SUBSCRIPTION: Tự động cập nhật khi có đơn mới
+        const unsubscribe = subscribeToActiveOrders(companyId, (data) => {
+            setOrders(data);
+            setIsLoading(false);
+        });
+        
+        // Cleanup listener when component unmounts
+        return () => unsubscribe();
     }, [companyId]);
 
     const handleStatusChange = async (id: string, newStatus: OrderStatus) => {
         await updateOrderStatus(id, newStatus);
-        loadOrders();
+        // Không cần loadOrders() vì subscription sẽ tự update
     };
 
     return (
         <div className="p-4 md:p-6">
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl md:text-2xl font-bold text-gray-800 dark:text-white">Màn hình Bếp (Monitor)</h2>
-                <button onClick={loadOrders} className="text-primary-600 hover:underline"><ArrowPathIcon className="h-5 w-5"/></button>
+                <h2 className="text-xl md:text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                    Màn hình Bếp (Monitor)
+                    <span className="flex h-3 w-3 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                    </span>
+                    <span className="text-xs font-normal text-gray-500">Live</span>
+                </h2>
             </div>
 
             {isLoading ? <LoadingIcon className="h-8 w-8 mx-auto" /> : (
@@ -562,7 +567,7 @@ const OrderList: React.FC<{ companyId: string }> = ({ companyId }) => {
                     )}
                     
                     {orders.map(order => (
-                        <div key={order.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md border-l-4 border-yellow-500 p-4 relative">
+                        <div key={order.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md border-l-4 border-yellow-500 p-4 relative animate-in fade-in duration-300">
                             <div className="flex justify-between mb-3 pb-2 border-b border-dashed border-gray-100 dark:border-gray-700">
                                 <div className="flex flex-col">
                                     <span className="font-mono font-bold text-lg dark:text-white">#{order.id.slice(-4).toUpperCase()}</span>

@@ -43,7 +43,6 @@ export const createOrder = async (order: Omit<Order, 'id'>): Promise<Order> => {
 };
 
 export const getOrders = async (companyId: string, limit: number = 50): Promise<Order[]> => {
-    // Removed orderBy to prevent index error
     const snapshot = await ordersCol.where('companyId', '==', companyId).get();
     
     // Sort client-side
@@ -55,9 +54,8 @@ export const getOrders = async (companyId: string, limit: number = 50): Promise<
     return orders;
 };
 
+// Polling method (Deprecated in favor of subscription, but kept for fallback)
 export const getActiveOrders = async (companyId: string): Promise<Order[]> => {
-    // 'in' query works fine with simple equality checks usually, but combined with sort might cause issues
-    // We will fetch active statuses and sort in memory
     const snapshot = await ordersCol.where('companyId', '==', companyId).where('status', 'in', ['PENDING', 'PREPARING']).get();
     
     const orders = snapshot.docs
@@ -67,12 +65,26 @@ export const getActiveOrders = async (companyId: string): Promise<Order[]> => {
     return orders;
 }
 
+// REAL-TIME SUBSCRIPTION for Kitchen Display
+export const subscribeToActiveOrders = (companyId: string, onUpdate: (orders: Order[]) => void) => {
+    return ordersCol
+        .where('companyId', '==', companyId)
+        .where('status', 'in', ['PENDING', 'PREPARING'])
+        .onSnapshot(snapshot => {
+            const orders = snapshot.docs
+                .map(doc => ({ ...doc.data(), id: doc.id } as Order))
+                .sort((a, b) => b.timestamp - a.timestamp); // Sort mới nhất lên đầu (hoặc cũ nhất lên đầu tùy logic bếp)
+            onUpdate(orders);
+        }, error => {
+            console.error("Error subscribing to orders:", error);
+        });
+};
+
 export const updateOrderStatus = async (id: string, status: OrderStatus): Promise<void> => {
     await ordersCol.doc(id).update({ status });
 };
 
 export const getAllOrdersHistory = async (companyId: string): Promise<Order[]> => {
-    // Removed orderBy to prevent index error
     const snapshot = await ordersCol.where('companyId', '==', companyId).get();
     
     // Sort and limit client-side
