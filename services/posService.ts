@@ -43,14 +43,28 @@ export const createOrder = async (order: Omit<Order, 'id'>): Promise<Order> => {
 };
 
 export const getOrders = async (companyId: string, limit: number = 50): Promise<Order[]> => {
-    const snapshot = await ordersCol.where('companyId', '==', companyId).orderBy('timestamp', 'desc').limit(limit).get();
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
+    // Removed orderBy to prevent index error
+    const snapshot = await ordersCol.where('companyId', '==', companyId).get();
+    
+    // Sort client-side
+    const orders = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Order))
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, limit);
+        
+    return orders;
 };
 
 export const getActiveOrders = async (companyId: string): Promise<Order[]> => {
+    // 'in' query works fine with simple equality checks usually, but combined with sort might cause issues
+    // We will fetch active statuses and sort in memory
     const snapshot = await ordersCol.where('companyId', '==', companyId).where('status', 'in', ['PENDING', 'PREPARING']).get();
-    const orders = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
-    return orders.sort((a, b) => b.timestamp - a.timestamp);
+    
+    const orders = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Order))
+        .sort((a, b) => b.timestamp - a.timestamp);
+        
+    return orders;
 }
 
 export const updateOrderStatus = async (id: string, status: OrderStatus): Promise<void> => {
@@ -58,6 +72,14 @@ export const updateOrderStatus = async (id: string, status: OrderStatus): Promis
 };
 
 export const getAllOrdersHistory = async (companyId: string): Promise<Order[]> => {
-    const snapshot = await ordersCol.where('companyId', '==', companyId).orderBy('timestamp', 'desc').limit(500).get();
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
+    // Removed orderBy to prevent index error
+    const snapshot = await ordersCol.where('companyId', '==', companyId).get();
+    
+    // Sort and limit client-side
+    const orders = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Order))
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 500);
+        
+    return orders;
 }

@@ -57,7 +57,7 @@ export const login = async (
   credentials: { username?: string; password?: string; deviceCode?: string }
 ): Promise<CurrentUser | null> => {
   if (role === 'admin') {
-    if (credentials.username === 'superadmin' && credentials.password === 'super123') {
+    if (credentials.username === 'an' && credentials.password === 'an123') {
       return { id: 'super', companyId: 'super', name: 'Super Admin', username: 'superadmin', password: '', role: 'SUPER_ADMIN' };
     }
     
@@ -176,14 +176,30 @@ export const updateJobTitle = async (id: string, updates: Partial<JobTitle>): Pr
 
 // --- Attendance Records ---
 export const getRecordsForEmployee = async (employeeId: string, limit: number = 50): Promise<AttendanceRecord[]> => {
-  const snapshot = await recordsCol.where('employeeId', '==', employeeId).orderBy('timestamp', 'desc').limit(limit).get();
-  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRecord));
+  // Removed orderBy('timestamp', 'desc') to avoid index requirement
+  const snapshot = await recordsCol.where('employeeId', '==', employeeId).get();
+  
+  // Sort client-side
+  const records = snapshot.docs
+    .map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRecord))
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, limit);
+    
+  return records;
 };
 
 export const getLastRecordForEmployee = async (employeeId: string): Promise<AttendanceRecord | null> => {
-  const snapshot = await recordsCol.where('employeeId', '==', employeeId).orderBy('timestamp', 'desc').limit(1).get();
+  // Removed orderBy and limit(1) to avoid index requirement
+  const snapshot = await recordsCol.where('employeeId', '==', employeeId).get();
+  
   if (snapshot.empty) return null;
-  return { ...snapshot.docs[0].data(), id: snapshot.docs[0].id } as AttendanceRecord;
+  
+  // Find max timestamp client-side
+  const records = snapshot.docs
+    .map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRecord))
+    .sort((a, b) => b.timestamp - a.timestamp);
+    
+  return records[0] || null;
 };
 
 export const addAttendanceRecord = async (
@@ -251,21 +267,35 @@ export const processAttendanceRequest = async (request: AttendanceRequest, actio
 
 // --- Dashboard Data Loader ---
 export const getInitialData = async (companyId: string) => {
-  const [emps, recs, shfts, locs, jts, reqs] = await Promise.all([
+  // Use Promise.all to fetch data in parallel
+  // Note: orderBy('timestamp', 'desc') removed from records and requests queries
+  // to prevent "The query requires an index" error. Sorting is done client-side.
+  const [emps, recsSnapshot, shfts, locs, jts, reqsSnapshot] = await Promise.all([
     getEmployees(companyId),
-    recordsCol.where('companyId', '==', companyId).orderBy('timestamp', 'desc').limit(500).get(),
+    recordsCol.where('companyId', '==', companyId).get(),
     getShifts(companyId),
     getLocations(companyId),
     getJobTitles(companyId),
-    requestsCol.where('companyId', '==', companyId).orderBy('timestamp', 'desc').get()
+    requestsCol.where('companyId', '==', companyId).get()
   ]);
+
+  // Client-side sort and limit for records
+  const records = recsSnapshot.docs
+    .map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRecord))
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 500);
+
+  // Client-side sort for requests
+  const requests = reqsSnapshot.docs
+    .map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRequest))
+    .sort((a, b) => b.timestamp - a.timestamp);
 
   return {
     employees: emps,
-    records: recs.docs.map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRecord)),
+    records: records,
     shifts: shfts,
     locations: locs,
     jobTitles: jts,
-    requests: reqs.docs.map(doc => ({ ...doc.data(), id: doc.id } as AttendanceRequest))
+    requests: requests
   };
 };
