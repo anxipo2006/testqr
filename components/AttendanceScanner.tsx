@@ -37,7 +37,11 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectionIntervalRef = useRef<any>(null);
-  const isProcessingRef = useRef(false); // Ref to prevent concurrent API calls in loop
+  const isProcessingRef = useRef(false); 
+  
+  // Stability Counter: Requires N consecutive valid frames to pass
+  const consecutiveMatchesRef = useRef(0);
+  const REQUIRED_STABLE_FRAMES = 3;
 
 
   useEffect(() => {
@@ -58,18 +62,16 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
       const stream = await navigator.mediaDevices.getUserMedia({ 
           video: { 
               facingMode: 'user',
-              width: { ideal: 640 }, // Prefer standard resolution for speed
+              width: { ideal: 640 }, 
               height: { ideal: 480 }
           } 
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Wait for video to load metadata to start detection loop
         videoRef.current.onloadedmetadata = () => {
             if (scanState === 'verifyingFace' && !selfieData) {
                 videoRef.current?.play().catch(e => console.error("Play error", e));
                 startRealTimeDetection();
-                // Show manual button after 15 seconds if struggle (increased time due to liveness)
                 setTimeout(() => setShowManualCapture(true), 15000);
             }
         };
@@ -116,17 +118,17 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
       ];
       const random = actions[Math.floor(Math.random() * actions.length)];
       setLivenessChallenge(random);
+      consecutiveMatchesRef.current = 0; // Reset counter
   };
 
   const startRealTimeDetection = () => {
       if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current);
+      consecutiveMatchesRef.current = 0;
 
-      // Start with a random challenge if using Face ID
       if (employee.faceDescriptor) {
           generateChallenge();
       }
 
-      // Check every 200ms for smoother liveness feedback
       detectionIntervalRef.current = setInterval(async () => {
           if (!videoRef.current || !canvasRef.current || isProcessingRef.current || !scannedLocation) return;
           
@@ -151,7 +153,6 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
                   const resizedDetections = resizeResults(detection, displaySize);
                   const matchResult = await matchFace(detection.descriptor, employee.faceDescriptor);
                   
-                  // Liveness Check Logic
                   let isLivenessPassed = false;
                   let promptText = "Đang xác thực...";
 
@@ -160,33 +161,41 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
                           promptText = livenessChallenge.label;
                           isLivenessPassed = checkLivenessAction(detection, livenessChallenge.action);
                       } else {
-                          // Fallback if state update lag
                           promptText = "Giữ yên...";
                       }
                   } else {
                       promptText = "Không đúng người!";
+                      consecutiveMatchesRef.current = 0; // Reset if miss match
                   }
 
-                  // Draw Visual Feedback
                   drawFaceBox(canvas, resizedDetections, matchResult.isMatch, promptText);
 
                   if (matchResult.isMatch && isLivenessPassed) {
-                      // SUCCESS
-                      isProcessingRef.current = true;
-                      if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current);
+                      consecutiveMatchesRef.current += 1;
                       
-                      const image = captureImage();
-                      
-                      setProcessingMessage('Xác thực thành công! Đang chấm công...');
-                      setScanState('processing');
-                      
-                      setTimeout(() => {
-                          processAttendance(image || undefined);
-                      }, 500);
+                      // Require stability (e.g. 3 consecutive good frames)
+                      if (consecutiveMatchesRef.current >= REQUIRED_STABLE_FRAMES) {
+                          isProcessingRef.current = true;
+                          if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current);
+                          
+                          const image = captureImage();
+                          
+                          setProcessingMessage('Xác thực thành công! Đang chấm công...');
+                          setScanState('processing');
+                          
+                          setTimeout(() => {
+                              processAttendance(image || undefined);
+                          }, 500);
+                      }
+                  } else {
+                      // If liveness fails but face matches, we don't reset strictly, but we don't increment.
+                      // But if face mismatch, we reset above.
+                      if (!matchResult.isMatch) consecutiveMatchesRef.current = 0;
                   }
               } else {
                   const ctx = canvas.getContext('2d');
                   ctx?.clearRect(0, 0, canvas.width, canvas.height);
+                  consecutiveMatchesRef.current = 0;
               }
 
           } catch (e) {
@@ -211,7 +220,6 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
     if (state === 'success' && message) {
          setProcessingMessage(message); 
     }
-    // Cleanup
     stopCamera();
     isProcessingRef.current = false;
     
@@ -288,7 +296,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
         } else if (location.requireSelfie) {
              setProcessingMessage('Địa điểm yêu cầu chụp ảnh...');
              setScanState('verifyingFace');
-             setShowManualCapture(true); // Selfie always needs manual button
+             setShowManualCapture(true); 
         } else {
             await processAttendance();
         }
@@ -315,9 +323,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
 
   const captureImage = (): string | null => {
       if (videoRef.current) {
-        // Create a temp canvas if canvasRef is occupied by drawing
         const video = videoRef.current;
-        // Verify video dimensions
         if (video.videoWidth === 0 || video.videoHeight === 0) return null;
 
         const canvas = document.createElement('canvas');
@@ -334,7 +340,6 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
     return null;
   }
 
-  // Fallback for manual click (Selfie mode or FaceID fails)
   const handleManualCapture = async () => {
       if (!scannedLocation || isProcessingRef.current) return;
       isProcessingRef.current = true;
@@ -351,7 +356,6 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
       setProcessingMessage('Đang xử lý...');
 
       try {
-          // If employee has Face ID registered, verify it ONE LAST TIME manually
           if (employee.faceDescriptor) {
               setProcessingMessage('Đang phân tích kỹ khuôn mặt...');
               const detection = await detectFace(videoRef.current!); 
@@ -361,13 +365,10 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
               const matchResult = await matchFace(detection.descriptor, employee.faceDescriptor);
               
               if (!matchResult.isMatch) {
-                   throw new Error("Khuôn mặt không khớp.");
+                   throw new Error("Khuôn mặt không khớp. Vui lòng thử lại.");
               }
-              // Manual capture bypasses Liveness (useful if AI fails repeatedly), 
-              // but we still require face match.
               await processAttendance(image);
           } else {
-              // Just a selfie requirement
               await processAttendance(image);
           }
       } catch (e: any) {
@@ -375,11 +376,10 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
           setScanState('verifyingFace'); 
           alert(e.message); 
           isProcessingRef.current = false;
-          startRealTimeDetection(); // Restart loop
+          startRealTimeDetection(); 
       }
   }
 
-  // --- REPORTING LOGIC ---
   const handleCaptureSelfieForReport = () => {
       const img = captureImage();
       if(img) {
@@ -407,8 +407,6 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
           showResult('error', undefined, e.message || "Không thể gửi yêu cầu.");
       }
   }
-
-  // --- RENDER ---
 
   const StartReportingButton = () => (
       <button 
@@ -461,11 +459,9 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
 
             <div className="relative w-full aspect-square bg-black rounded-lg overflow-hidden mb-4 shadow-inner">
                  <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1] relative z-10"></video>
-                 {/* Canvas for bounding box overlay */}
                  <canvas ref={canvasRef} className="absolute inset-0 w-full h-full transform scale-x-[-1] z-20"></canvas>
             </div>
             
-            {/* Manual Button appears immediately for Selfie mode, or after timeout for FaceID mode */}
             {(showManualCapture || !hasFaceId) && (
                  <button onClick={handleManualCapture} className="w-full px-6 py-3 text-lg font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-3 shadow-lg animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <CameraIcon className="h-7 w-7"/>

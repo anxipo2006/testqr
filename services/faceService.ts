@@ -11,10 +11,12 @@ export const loadFaceModels = async () => {
   try {
     console.log("Loading Face API Models...");
     await Promise.all([
+      // Load SSD Mobilenet V1 for better accuracy if TinyFace is too weak? 
+      // Sticking to TinyFace for performance but maximizing config.
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-      faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL), // Load model cảm xúc để check cười
+      faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
     ]);
     isModelLoaded = true;
     console.log("Face API Models Loaded");
@@ -27,14 +29,14 @@ export const loadFaceModels = async () => {
 export const detectFace = async (imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement) => {
     if (!isModelLoaded) await loadFaceModels();
     
-    // TỐI ƯU HÓA QUAN TRỌNG:
-    // Tăng inputSize từ 160 lên 320 để nhận diện chính xác hơn.
-    // 160 quá nhỏ dẫn đến sai số cao (ai cũng giống ai).
-    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
+    // TỐI ƯU HÓA ĐỘ CHÍNH XÁC:
+    // Tăng inputSize lên 512 (chia hết cho 32). Mặc định là 416.
+    // Input lớn hơn giúp nhận diện khuôn mặt nhỏ hoặc chi tiết tốt hơn.
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.6 });
     
     const detection = await faceapi.detectSingleFace(imageElement, options)
         .withFaceLandmarks()
-        .withFaceExpressions() // Lấy thêm thông tin biểu cảm
+        .withFaceExpressions()
         .withFaceDescriptor();
         
     return detection;
@@ -72,7 +74,7 @@ export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: 
     
     let text = isMatch ? "Khuôn mặt hợp lệ" : "Không đúng người";
     if (isMatch && livenessPrompt) {
-        text = livenessPrompt; // Hiển thị yêu cầu: Cười lên, Quay trái...
+        text = livenessPrompt; 
     }
     
     ctx.fillText(text, box.x + box.width / 2, box.y - 15);
@@ -80,7 +82,7 @@ export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: 
 
 // Hàm tính khoảng cách Euclidean thuần túy
 function euclideanDistance(descriptor1: Float32Array, descriptor2: Float32Array): number {
-    if (descriptor1.length !== descriptor2.length) return 1.0; // Fail safe
+    if (descriptor1.length !== descriptor2.length) return 1.0; 
     let sum = 0;
     for (let i = 0; i < descriptor1.length; i++) {
         const diff = descriptor1[i] - descriptor2[i];
@@ -93,18 +95,19 @@ export const matchFace = async (liveDescriptor: Float32Array, storedDescriptorSt
     if (!storedDescriptorStr) return { isMatch: false, distance: 1 };
 
     try {
-        // Parse an toàn hơn: Xử lý cả trường hợp mảng JSON lẫn Object Firebase
         const parsed = JSON.parse(storedDescriptorStr);
+        // Hỗ trợ cả định dạng mảng thuần và object (firebase storage quirk)
         const storedDescriptor = new Float32Array(Array.isArray(parsed) ? parsed : Object.values(parsed));
         
         const distance = euclideanDistance(liveDescriptor, storedDescriptor);
         
-        // Ngưỡng (Threshold): 
-        // 0.6 là chuẩn. 0.5 là khá chặt. 
-        // Đặt 0.45 để đảm bảo không nhận nhầm người lạ (chấp nhận việc nhân viên chính chủ có thể phải thử lại 1-2 lần)
-        const threshold = 0.45;
+        // THRESHOLD NGHIÊM NGẶT: 0.4
+        // Chuẩn FaceAPI là 0.6. 
+        // 0.4 là rất chặt chẽ, đảm bảo không nhận nhầm người khác (False Positive).
+        // Tuy nhiên có thể gây khó nhận diện (False Negative) nếu ánh sáng kém.
+        const threshold = 0.4;
 
-        // console.log("Distance:", distance); // Debug distance
+        // console.log(`Distance: ${distance.toFixed(4)} | Threshold: ${threshold} | Match: ${distance < threshold}`);
 
         return {
             isMatch: distance < threshold,
@@ -124,7 +127,7 @@ export const checkLivenessAction = (detection: any, action: LivenessAction): boo
     if (!detection) return false;
 
     if (action === 'smile') {
-        // Kiểm tra biểu cảm vui vẻ (happy) > 0.7
+        // Cần độ tin cậy > 0.7
         return detection.expressions.happy > 0.7;
     }
 
@@ -139,14 +142,13 @@ export const checkLivenessAction = (detection: any, action: LivenessAction): boo
     const distToRight = Math.abs(nose.x - rightJaw.x);
     const ratio = distToLeft / distToRight;
 
+    // Ngưỡng quay đầu
     if (action === 'turnLeft') {
-        // Quay trái: Mũi gần má trái hơn (ratio < 1)
-        return ratio < 0.6; 
+        return ratio < 0.55; 
     }
 
     if (action === 'turnRight') {
-        // Quay phải: Mũi gần má phải hơn (ratio > 1)
-        return ratio > 1.6;
+        return ratio > 1.8;
     }
 
     return false;
