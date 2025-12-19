@@ -212,7 +212,7 @@ export const addAttendanceRecord = async (
     latitude: coords.latitude,
     longitude: coords.longitude,
     accuracy: coords.accuracy,
-    selfieImage: selfieImage || undefined
+    ...(selfieImage ? { selfieImage } : {})
   };
   const docRef = await recordsCol.add(newRecord);
   return { ...newRecord, id: docRef.id };
