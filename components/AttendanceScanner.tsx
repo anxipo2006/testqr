@@ -156,7 +156,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
                       
                       // Small delay to let user see the green box
                       setTimeout(() => {
-                          processAttendance(scannedLocation, image || undefined);
+                          processAttendance(image || undefined);
                       }, 500);
                   }
               } else {
@@ -213,7 +213,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
     });
   }
   
-  const processAttendance = async (location: Location, selfie?: string) => {
+  const processAttendance = async (selfie?: string) => {
      try {
         setProcessingMessage('Đang lấy vị trí của bạn...');
         const position = await getCurrentPosition();
@@ -265,7 +265,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
              setScanState('verifyingFace');
              setShowManualCapture(true); // Selfie always needs manual button
         } else {
-            await processAttendance(location);
+            await processAttendance();
         }
 
     } catch (error: any) {
@@ -337,10 +337,10 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
               if (!matchResult.isMatch) {
                    throw new Error("Khuôn mặt không khớp.");
               }
-              await processAttendance(scannedLocation, image);
+              await processAttendance(image);
           } else {
               // Just a selfie requirement
-              await processAttendance(scannedLocation, image);
+              await processAttendance(image);
           }
       } catch (e: any) {
           setSelfieData(null); 
