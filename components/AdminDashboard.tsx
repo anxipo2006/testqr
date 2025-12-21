@@ -18,7 +18,7 @@ import { loadFaceModels, detectFace } from '../services/faceService';
 import type { Employee, AttendanceRecord, Shift, Location, JobTitle, AttendanceRequest, AdminAccount } from '../types';
 import { AttendanceStatus, RequestStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
-import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, InboxStackIcon, CubeIcon, CheckCircleIcon, ChartBarIcon, PlusIcon, ShoppingBagIcon, ExclamationTriangleIcon } from './icons';
+import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, InboxStackIcon, CubeIcon, CheckCircleIcon, ChartBarIcon, PlusIcon, ShoppingBagIcon, ExclamationTriangleIcon, TagIcon } from './icons';
 import { formatTimestamp, formatTimeToHHMM } from '../utils/date';
 import { MenuManager, OrderList } from './FnbManagement';
 import { RevenueReport, InvoiceManagement } from './FnbAnalytics';
@@ -125,6 +125,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ admin, onLogout, onImpe
           <TabButton icon={<ListBulletIcon className="h-5 w-5"/>} label="Nhật ký (Logs)" isActive={activeTab === 'logs'} onClick={() => setActiveTab('logs')} />
           <TabButton icon={<InboxStackIcon className="h-5 w-5"/>} label="Yêu cầu" isActive={activeTab === 'requests'} onClick={() => setActiveTab('requests')} />
           <TabButton icon={<UserGroupIcon className="h-5 w-5"/>} label="Nhân viên" isActive={activeTab === 'employees'} onClick={() => setActiveTab('employees')} />
+          <TabButton icon={<TagIcon className="h-5 w-5"/>} label="Chức vụ" isActive={activeTab === 'jobTitles'} onClick={() => setActiveTab('jobTitles')} />
           <TabButton icon={<ClockIcon className="h-5 w-5"/>} label="Ca làm việc" isActive={activeTab === 'shifts'} onClick={() => setActiveTab('shifts')} />
           <TabButton icon={<BuildingOffice2Icon className="h-5 w-5"/>} label="Địa điểm" isActive={activeTab === 'locations'} onClick={() => setActiveTab('locations')} />
           <TabButton icon={<QrCodeIcon className="h-5 w-5"/>} label="Mã QR" isActive={activeTab === 'qrcode'} onClick={() => setActiveTab('qrcode')} />
@@ -217,7 +218,12 @@ const EmployeeManagement: React.FC<any> = ({ employees, shifts, locations, jobTi
               <PlusIcon className="h-5 w-5" /> Thêm nhân viên
             </button>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {employees.map((emp: Employee) => (
+                {employees.map((emp: Employee) => {
+                    const jobTitle = jobTitles.find((j: any) => j.id === emp.jobTitleId);
+                    const shift = shifts.find((s: any) => s.id === emp.shiftId);
+                    const location = locations.find((l: any) => l.id === emp.locationId);
+
+                    return (
                     <div key={emp.id} className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 hover:shadow-md transition-shadow">
                         <div className="flex justify-between items-start">
                             <div>
@@ -225,6 +231,20 @@ const EmployeeManagement: React.FC<any> = ({ employees, shifts, locations, jobTi
                                     {emp.name} {emp.faceDescriptor && <span className="text-green-500" title="FaceID active"><FaceSmileIcon className="h-5 w-5" /></span>}
                                 </h3>
                                 <p className="text-sm text-gray-500">@{emp.username}</p>
+                                
+                                <div className="mt-2 space-y-1">
+                                    {jobTitle ? (
+                                        <span className="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded mr-2 font-medium">
+                                            {jobTitle.name}
+                                        </span>
+                                    ) : (
+                                        <span className="inline-block bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded mr-2">Chưa có chức vụ</span>
+                                    )}
+                                </div>
+                                <div className="mt-2 text-xs text-gray-500 space-y-0.5">
+                                    <p className="flex items-center gap-1"><ClockIcon className="h-3 w-3"/> {shift ? `${shift.name} (${shift.startTime}-${shift.endTime})` : 'Chưa phân ca'}</p>
+                                    <p className="flex items-center gap-1"><MapPinIcon className="h-3 w-3"/> {location ? location.name : 'Chưa phân địa điểm'}</p>
+                                </div>
                             </div>
                             <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 text-[10px] px-2 py-1 rounded font-mono font-bold uppercase tracking-widest">{emp.deviceCode}</span>
                         </div>
@@ -235,7 +255,7 @@ const EmployeeManagement: React.FC<any> = ({ employees, shifts, locations, jobTi
                              <button onClick={() => onDeleteEmployee(emp.id)} className="text-[10px] px-2 py-1 rounded bg-red-50 text-red-600">Xóa</button>
                         </div>
                     </div>
-                ))}
+                )})}
             </div>
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -814,3 +834,4 @@ const FaceEnrollmentModal: React.FC<{ employee: Employee, onClose: () => void, o
 };
 
 export default AdminDashboard;
+    
