@@ -48,7 +48,7 @@ export const resizeResults = (detection: any, size: { width: number, height: num
 };
 
 // Hàm vẽ khung khuôn mặt
-export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: boolean, livenessPrompt?: string) => {
+export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: boolean) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
@@ -63,21 +63,8 @@ export const drawFaceBox = (canvas: HTMLCanvasElement, detection: any, isMatch: 
     ctx.lineWidth = 4;
     ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-    // Vẽ nền mờ cho chữ
-    ctx.fillStyle = isMatch ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)';
-    ctx.fillRect(box.x, box.y - 40, box.width, 40);
-
-    // Vẽ chữ thông báo trạng thái
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.textAlign = 'center';
-    
-    let text = isMatch ? "Khuôn mặt hợp lệ" : "Không đúng người";
-    if (isMatch && livenessPrompt) {
-        text = livenessPrompt; 
-    }
-    
-    ctx.fillText(text, box.x + box.width / 2, box.y - 15);
+    // KHÔNG VẼ CHỮ Ở ĐÂY NỮA ĐỂ TRÁNH BỊ NGƯỢC (MIRRORED)
+    // Chữ sẽ được handle bằng HTML Overlay
 };
 
 // Hàm tính khoảng cách Euclidean thuần túy
@@ -128,8 +115,8 @@ export const checkLivenessAction = (detection: any, action: LivenessAction): boo
     if (!detection) return false;
 
     if (action === 'smile') {
-        // Cần độ tin cậy > 0.7
-        return detection.expressions.happy > 0.7;
+        // Giảm ngưỡng xuống 0.6 để dễ cười hơn
+        return detection.expressions.happy > 0.6;
     }
 
     const landmarks = detection.landmarks;
@@ -143,7 +130,7 @@ export const checkLivenessAction = (detection: any, action: LivenessAction): boo
     const distToRight = Math.abs(nose.x - rightJaw.x);
     const ratio = distToLeft / distToRight;
 
-    // Ngưỡng quay đầu
+    // Ngưỡng quay đầu (Vẫn giữ logic nhưng không gọi tới trong UI nữa)
     if (action === 'turnLeft') {
         return ratio < 0.55; 
     }

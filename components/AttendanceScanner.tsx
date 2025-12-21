@@ -27,6 +27,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
 
   // Liveness State
   const [livenessChallenge, setLivenessChallenge] = useState<{action: LivenessAction, label: string} | null>(null);
+  const [feedbackText, setFeedbackText] = useState("Đang tìm khuôn mặt...");
 
   // Reporting State
   const [reportReason, setReportReason] = useState('');
@@ -40,10 +41,9 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   const isProcessingRef = useRef(false); 
   
   // --- STABILITY COUNTER ---
-  // Yêu cầu N khung hình liên tiếp hợp lệ mới tính là thành công
-  // Giúp loại bỏ các trường hợp nhận diện sai do mờ/nhòe trong tích tắc
+  // Giảm xuống 2 để nhanh nhạy hơn
   const consecutiveMatchesRef = useRef(0);
-  const REQUIRED_STABLE_FRAMES = 3;
+  const REQUIRED_STABLE_FRAMES = 2;
 
 
   useEffect(() => {
@@ -74,7 +74,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
             if (scanState === 'verifyingFace' && !selfieData) {
                 videoRef.current?.play().catch(e => console.error("Play error", e));
                 startRealTimeDetection();
-                setTimeout(() => setShowManualCapture(true), 15000);
+                setTimeout(() => setShowManualCapture(true), 12000); // Hiện nút chụp thủ công sớm hơn chút
             }
         };
       }
@@ -110,17 +110,18 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   }, [scanState, selfieData]);
 
 
-  // --- REAL-TIME DETECTION LOOP (With Liveness) ---
+  // --- REAL-TIME DETECTION LOOP (With Simplified Liveness) ---
 
   const generateChallenge = () => {
+      // BỎ QUAY TRÁI/PHẢI để dễ dàng hơn cho nhân viên
       const actions: {action: LivenessAction, label: string}[] = [
           { action: 'smile', label: 'HÃY CƯỜI LÊN! 😁' },
-          { action: 'turnLeft', label: 'QUAY TRÁI ⬅️' },
-          { action: 'turnRight', label: 'QUAY PHẢI ➡️' }
+          // Có thể thêm 'blink' nếu thư viện hỗ trợ tốt, hiện tại chỉ giữ Smile để đơn giản
       ];
       const random = actions[Math.floor(Math.random() * actions.length)];
       setLivenessChallenge(random);
-      consecutiveMatchesRef.current = 0; // Reset counter
+      setFeedbackText(random.label);
+      consecutiveMatchesRef.current = 0; 
   };
 
   const startRealTimeDetection = () => {
@@ -129,6 +130,8 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
 
       if (employee.faceDescriptor) {
           generateChallenge();
+      } else {
+          setFeedbackText("Giữ yên khuôn mặt...");
       }
 
       detectionIntervalRef.current = setInterval(async () => {
@@ -156,28 +159,30 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
                   const matchResult = await matchFace(detection.descriptor, employee.faceDescriptor);
                   
                   let isLivenessPassed = false;
-                  let promptText = "Đang xác thực...";
 
                   if (matchResult.isMatch) {
                       if (livenessChallenge) {
-                          promptText = livenessChallenge.label;
                           isLivenessPassed = checkLivenessAction(detection, livenessChallenge.action);
+                          if (isLivenessPassed) {
+                              setFeedbackText("Tuyệt vời! Giữ nguyên...");
+                          } else {
+                              setFeedbackText(livenessChallenge.label);
+                          }
                       } else {
-                          promptText = "Giữ yên...";
+                          isLivenessPassed = true; // No challenge, just match
+                          setFeedbackText("Đang xác thực...");
                       }
                   } else {
-                      promptText = "Không đúng người!";
-                      // Nếu sai người, reset ngay lập tức
+                      setFeedbackText("Không đúng người!");
                       consecutiveMatchesRef.current = 0; 
                   }
 
-                  drawFaceBox(canvas, resizedDetections, matchResult.isMatch, promptText);
+                  // Chỉ vẽ khung, không vẽ chữ trong canvas nữa để tránh bị ngược
+                  drawFaceBox(canvas, resizedDetections, matchResult.isMatch);
 
                   if (matchResult.isMatch && isLivenessPassed) {
-                      // Tăng bộ đếm độ ổn định
                       consecutiveMatchesRef.current += 1;
                       
-                      // Chỉ chấp nhận khi đã ổn định qua N frame
                       if (consecutiveMatchesRef.current >= REQUIRED_STABLE_FRAMES) {
                           isProcessingRef.current = true;
                           if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current);
@@ -192,14 +197,13 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
                           }, 500);
                       }
                   } else {
-                      // Nếu match khuôn mặt nhưng chưa làm đúng hành động liveness -> không tăng đếm, nhưng cũng không reset (cho người dùng thời gian phản ứng)
-                      // Tuy nhiên nếu KHÔNG match khuôn mặt -> đã reset ở trên.
                       if (!matchResult.isMatch) consecutiveMatchesRef.current = 0;
                   }
               } else {
-                  // Không thấy mặt -> reset
+                  // Không thấy mặt
                   const ctx = canvas.getContext('2d');
                   ctx?.clearRect(0, 0, canvas.width, canvas.height);
+                  setFeedbackText("Hãy đưa khuôn mặt vào khung hình");
                   consecutiveMatchesRef.current = 0;
               }
 
@@ -454,17 +458,23 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   if (scanState === 'verifyingFace') {
     const hasFaceId = !!employee.faceDescriptor;
     return (
-        <div className="border border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center relative">
+        <div className="border border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center relative overflow-hidden">
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                {hasFaceId ? 'Xác thực Liveness (Chống gian lận)' : 'Chụp ảnh xác thực'}
+                {hasFaceId ? 'Xác thực khuôn mặt' : 'Chụp ảnh xác thực'}
             </h3>
-            <p className="text-sm text-gray-500 mb-4">
-                {hasFaceId ? (livenessChallenge ? 'Làm theo hướng dẫn trên màn hình' : 'Đang khởi tạo...') : 'Vui lòng chụp ảnh selfie.'}
-            </p>
-
-            <div className="relative w-full aspect-square bg-black rounded-lg overflow-hidden mb-4 shadow-inner">
+            
+            <div className="relative w-full aspect-square bg-black rounded-lg overflow-hidden mb-4 shadow-2xl">
                  <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1] relative z-10"></video>
                  <canvas ref={canvasRef} className="absolute inset-0 w-full h-full transform scale-x-[-1] z-20"></canvas>
+                 
+                 {/* HTML OVERLAY FOR TEXT (Prevents mirroring) */}
+                 {hasFaceId && (
+                     <div className="absolute top-6 left-0 right-0 z-30 flex justify-center pointer-events-none">
+                        <div className={`px-4 py-2 rounded-full text-white font-bold text-lg shadow-lg backdrop-blur-sm transition-all duration-300 ${feedbackText.includes("Không") ? 'bg-red-500/80' : feedbackText.includes("Tuyệt") ? 'bg-green-500/80' : 'bg-primary-600/80'}`}>
+                            {feedbackText}
+                        </div>
+                     </div>
+                 )}
             </div>
             
             {(showManualCapture || !hasFaceId) && (
