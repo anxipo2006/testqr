@@ -39,7 +39,9 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   const detectionIntervalRef = useRef<any>(null);
   const isProcessingRef = useRef(false); 
   
-  // Stability Counter: Requires N consecutive valid frames to pass
+  // --- STABILITY COUNTER ---
+  // Yêu cầu N khung hình liên tiếp hợp lệ mới tính là thành công
+  // Giúp loại bỏ các trường hợp nhận diện sai do mờ/nhòe trong tích tắc
   const consecutiveMatchesRef = useRef(0);
   const REQUIRED_STABLE_FRAMES = 3;
 
@@ -165,15 +167,17 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
                       }
                   } else {
                       promptText = "Không đúng người!";
-                      consecutiveMatchesRef.current = 0; // Reset if miss match
+                      // Nếu sai người, reset ngay lập tức
+                      consecutiveMatchesRef.current = 0; 
                   }
 
                   drawFaceBox(canvas, resizedDetections, matchResult.isMatch, promptText);
 
                   if (matchResult.isMatch && isLivenessPassed) {
+                      // Tăng bộ đếm độ ổn định
                       consecutiveMatchesRef.current += 1;
                       
-                      // Require stability (e.g. 3 consecutive good frames)
+                      // Chỉ chấp nhận khi đã ổn định qua N frame
                       if (consecutiveMatchesRef.current >= REQUIRED_STABLE_FRAMES) {
                           isProcessingRef.current = true;
                           if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current);
@@ -188,11 +192,12 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
                           }, 500);
                       }
                   } else {
-                      // If liveness fails but face matches, we don't reset strictly, but we don't increment.
-                      // But if face mismatch, we reset above.
+                      // Nếu match khuôn mặt nhưng chưa làm đúng hành động liveness -> không tăng đếm, nhưng cũng không reset (cho người dùng thời gian phản ứng)
+                      // Tuy nhiên nếu KHÔNG match khuôn mặt -> đã reset ở trên.
                       if (!matchResult.isMatch) consecutiveMatchesRef.current = 0;
                   }
               } else {
+                  // Không thấy mặt -> reset
                   const ctx = canvas.getContext('2d');
                   ctx?.clearRect(0, 0, canvas.width, canvas.height);
                   consecutiveMatchesRef.current = 0;

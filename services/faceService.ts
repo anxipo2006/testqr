@@ -11,8 +11,7 @@ export const loadFaceModels = async () => {
   try {
     console.log("Loading Face API Models...");
     await Promise.all([
-      // Load SSD Mobilenet V1 for better accuracy if TinyFace is too weak? 
-      // Sticking to TinyFace for performance but maximizing config.
+      // TinyFaceDetector nhanh nhẹn cho web, nhưng cần config inputSize lớn để chính xác
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
@@ -29,9 +28,10 @@ export const loadFaceModels = async () => {
 export const detectFace = async (imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement) => {
     if (!isModelLoaded) await loadFaceModels();
     
-    // TỐI ƯU HÓA ĐỘ CHÍNH XÁC:
+    // TỐI ƯU HÓA QUAN TRỌNG:
     // Tăng inputSize lên 512 (chia hết cho 32). Mặc định là 416.
-    // Input lớn hơn giúp nhận diện khuôn mặt nhỏ hoặc chi tiết tốt hơn.
+    // 512 giúp AI nhận diện chi tiết tốt hơn hẳn so với 160 hay 320.
+    // scoreThreshold 0.6: Chỉ nhận diện khi AI rất chắc chắn đó là khuôn mặt.
     const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.6 });
     
     const detection = await faceapi.detectSingleFace(imageElement, options)
@@ -96,15 +96,16 @@ export const matchFace = async (liveDescriptor: Float32Array, storedDescriptorSt
 
     try {
         const parsed = JSON.parse(storedDescriptorStr);
-        // Hỗ trợ cả định dạng mảng thuần và object (firebase storage quirk)
+        // Xử lý linh hoạt cả Array và Object (do Firebase đôi khi lưu dạng object index)
         const storedDescriptor = new Float32Array(Array.isArray(parsed) ? parsed : Object.values(parsed));
         
         const distance = euclideanDistance(liveDescriptor, storedDescriptor);
         
-        // THRESHOLD NGHIÊM NGẶT: 0.4
-        // Chuẩn FaceAPI là 0.6. 
-        // 0.4 là rất chặt chẽ, đảm bảo không nhận nhầm người khác (False Positive).
-        // Tuy nhiên có thể gây khó nhận diện (False Negative) nếu ánh sáng kém.
+        // --- CẤU HÌNH QUAN TRỌNG ---
+        // Threshold càng NHỎ càng KHẮT KHE.
+        // 0.6: Mặc định (Dễ dãi, dễ sai)
+        // 0.45: Trung bình
+        // 0.4: Khắt khe (Khuyên dùng để chống gian lận)
         const threshold = 0.4;
 
         // console.log(`Distance: ${distance.toFixed(4)} | Threshold: ${threshold} | Match: ${distance < threshold}`);

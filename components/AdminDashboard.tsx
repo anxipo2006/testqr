@@ -18,8 +18,8 @@ import { loadFaceModels, detectFace } from '../services/faceService';
 import type { Employee, AttendanceRecord, Shift, Location, JobTitle, AttendanceRequest, AdminAccount } from '../types';
 import { AttendanceStatus, RequestStatus } from '../types';
 import QRCodeGenerator from './QRCodeGenerator';
-import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, InboxStackIcon, CubeIcon, CheckCircleIcon, ChartBarIcon, PlusIcon, ShoppingBagIcon } from './icons';
-import { formatTimestamp } from '../utils/date';
+import { QrCodeIcon, UserGroupIcon, ListBulletIcon, LogoutIcon, ClockIcon, CalendarDaysIcon, XCircleIcon, MapPinIcon, BuildingOffice2Icon, LoadingIcon, CameraIcon, InboxStackIcon, CubeIcon, CheckCircleIcon, ChartBarIcon, PlusIcon, ShoppingBagIcon, ExclamationTriangleIcon } from './icons';
+import { formatTimestamp, formatTimeToHHMM } from '../utils/date';
 import { MenuManager, OrderList } from './FnbManagement';
 import { RevenueReport, InvoiceManagement } from './FnbAnalytics';
 
@@ -96,7 +96,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ admin, onLogout, onImpe
   const renderContent = () => {
     if (isLoading) return <div className="flex justify-center py-20"><LoadingIcon className="h-12 w-12 text-primary-500" /></div>;
     switch (activeTab) {
-      case 'timesheet': return <AttendanceTimesheet employees={employees} records={records} />;
+      case 'timesheet': return <AttendanceTimesheet employees={employees} records={records} shifts={shifts} />;
       case 'employees': return <EmployeeManagement employees={employees} shifts={shifts} locations={locations} jobTitles={jobTitles} onAddEmployee={async (e:any) => { await addEmployee(admin.companyId, e.name, e.username, e.password, e.shiftId, e.locationId, e.jobTitleId); loadData(); }} onDeleteEmployee={async (id:string) => { if(confirm("Xóa nhân viên?")) { await deleteEmployee(id); loadData(); } }} onImpersonate={onImpersonate} onEnrollFace={setEnrollingEmployee} onEditEmployee={setEditingEmployee} />;
       case 'shifts': return <ShiftManagement shifts={shifts} onAddShift={async (n:any, s:any, e:any) => { await addShift(admin.companyId, n, s, e); loadData(); }} onDeleteShift={async (id:string) => { await deleteShift(id); loadData(); }} />;
       case 'locations': return <LocationManagement locations={locations} onAddLocation={async (loc:any) => { await addLocation(admin.companyId, loc); loadData(); }} onDeleteLocation={async (id:string) => { await deleteLocation(id); loadData(); }} onEditLocation={setEditingLocation} />;
@@ -507,7 +507,7 @@ const JobTitleManagement: React.FC<any> = ({ jobTitles, onAddJobTitle }) => {
     )
 };
 
-const AttendanceTimesheet: React.FC<{ employees: Employee[], records: AttendanceRecord[] }> = ({ employees, records }) => {
+const AttendanceTimesheet: React.FC<{ employees: Employee[], records: AttendanceRecord[], shifts: Shift[] }> = ({ employees, records, shifts }) => {
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
     const month = selectedDate.getMonth();
@@ -515,6 +515,91 @@ const AttendanceTimesheet: React.FC<{ employees: Employee[], records: Attendance
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
+    // ANALYTICS CALCULATION
+    const stats = useMemo(() => {
+        const lateCounts: Record<string, number> = {};
+        const onTimeCounts: Record<string, number> = {};
+        const absenceByDay: Record<number, number> = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0 }; // Sun-Sat
+
+        // Helper to parse time string "HH:mm" to minutes since midnight
+        const parseTime = (t: string) => {
+            const [h, m] = t.split(':').map(Number);
+            return h * 60 + m;
+        }
+
+        // Initialize counts
+        employees.forEach(e => {
+            lateCounts[e.id] = 0;
+            onTimeCounts[e.id] = 0;
+        });
+
+        // Iterate through all days of the month to check status
+        const today = new Date();
+        const isCurrentMonth = today.getMonth() === month && today.getFullYear() === year;
+        const checkUntilDay = isCurrentMonth ? today.getDate() : daysInMonth;
+
+        for (let d = 1; d <= checkUntilDay; d++) {
+            const currentDayDate = new Date(year, month, d);
+            const dayOfWeek = currentDayDate.getDay();
+
+            employees.forEach(emp => {
+                const dayRecords = records.filter(r => {
+                    const rd = new Date(r.timestamp);
+                    return rd.getDate() === d && rd.getMonth() === month && rd.getFullYear() === year && r.employeeId === emp.id;
+                });
+                
+                const checkIn = dayRecords.find(r => r.status === AttendanceStatus.CHECK_IN);
+                
+                if (checkIn) {
+                    // Check if late
+                    const shift = shifts.find(s => s.id === emp.shiftId);
+                    if (shift) {
+                         const checkInDate = new Date(checkIn.timestamp);
+                         const checkInMinutes = checkInDate.getHours() * 60 + checkInDate.getMinutes();
+                         const shiftStartMinutes = parseTime(shift.startTime);
+                         
+                         // Late threshold: 5 minutes
+                         if (checkInMinutes > shiftStartMinutes + 5) {
+                             lateCounts[emp.id]++;
+                         } else {
+                             onTimeCounts[emp.id]++;
+                         }
+                    } else {
+                         // No shift assigned, count as on time if present
+                         onTimeCounts[emp.id]++;
+                    }
+                } else {
+                    // Absent
+                    // Only count absence if day is passed
+                    if (d < today.getDate() || !isCurrentMonth) {
+                        absenceByDay[dayOfWeek]++;
+                    }
+                }
+            });
+        }
+
+        // Sort Top Late
+        const topLate = Object.entries(lateCounts)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 3)
+            .map(([id, count]) => ({ name: employees.find(e => e.id === id)?.name || 'Unknown', count }));
+
+        // Sort Top Punctual
+        const topPunctual = Object.entries(onTimeCounts)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 3)
+             .map(([id, count]) => ({ name: employees.find(e => e.id === id)?.name || 'Unknown', count }));
+        
+        // Find most absent day
+        const dayNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+        const maxAbsenceDayIndex = Object.keys(absenceByDay).reduce((a, b) => absenceByDay[parseInt(a)] > absenceByDay[parseInt(b)] ? a : b, "1"); // default Monday
+        const maxAbsenceDay = dayNames[parseInt(maxAbsenceDayIndex)];
+
+        return { topLate, topPunctual, maxAbsenceDay, absenceCounts: absenceByDay };
+    }, [employees, records, shifts, month, year]);
+
+
+    // Data for Grid
     const attendanceMap = useMemo(() => {
         const map: Record<string, Record<number, any>> = {};
         records.forEach(r => {
@@ -530,8 +615,77 @@ const AttendanceTimesheet: React.FC<{ employees: Employee[], records: Attendance
         return map;
     }, [records, month, year]);
 
+    const getStatusColor = (emp: Employee, day: number) => {
+        const data = attendanceMap[emp.id]?.[day];
+        if (!data || !data.cin) return 'bg-gray-100 dark:bg-gray-700'; // Absent/No Data
+
+        const shift = shifts.find(s => s.id === emp.shiftId);
+        if (shift) {
+            const cin = new Date(data.cin);
+            const [sh, sm] = shift.startTime.split(':').map(Number);
+            const shiftTime = new Date(cin);
+            shiftTime.setHours(sh, sm, 0, 0);
+            
+            // 5 minutes grace period
+            if (cin.getTime() > shiftTime.getTime() + 5 * 60000) return 'bg-yellow-200 text-yellow-800'; // Late
+        }
+        return 'bg-green-200 text-green-800'; // On Time
+    }
+    
+    const getCellTitle = (emp: Employee, day: number) => {
+        const data = attendanceMap[emp.id]?.[day];
+        if (!data || !data.cin) return 'Vắng';
+        const cin = formatTimeToHHMM(data.cin);
+        const cout = data.cout ? formatTimeToHHMM(data.cout) : '--:--';
+        return `In: ${cin} - Out: ${cout}`;
+    }
+
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Analytics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white dark:bg-gray-800 p-5 rounded-lg shadow border-l-4 border-yellow-400">
+                    <h4 className="text-sm font-bold text-gray-500 uppercase mb-3 flex items-center gap-2">
+                        <ExclamationTriangleIcon className="h-4 w-4" /> Top Đi Trễ
+                    </h4>
+                    <ul className="space-y-2">
+                        {stats.topLate.map((p, i) => (
+                            <li key={i} className="flex justify-between text-sm">
+                                <span className="text-gray-700 dark:text-gray-300 font-medium">{i+1}. {p.name}</span>
+                                <span className="font-bold text-yellow-600">{p.count} lần</span>
+                            </li>
+                        ))}
+                        {stats.topLate.length === 0 && <li className="text-sm text-gray-400 italic">Chưa có dữ liệu</li>}
+                    </ul>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 p-5 rounded-lg shadow border-l-4 border-green-500">
+                    <h4 className="text-sm font-bold text-gray-500 uppercase mb-3 flex items-center gap-2">
+                        <CheckCircleIcon className="h-4 w-4" /> Top Chuyên Cần
+                    </h4>
+                    <ul className="space-y-2">
+                         {stats.topPunctual.map((p, i) => (
+                            <li key={i} className="flex justify-between text-sm">
+                                <span className="text-gray-700 dark:text-gray-300 font-medium">{i+1}. {p.name}</span>
+                                <span className="font-bold text-green-600">{p.count} lần</span>
+                            </li>
+                        ))}
+                         {stats.topPunctual.length === 0 && <li className="text-sm text-gray-400 italic">Chưa có dữ liệu</li>}
+                    </ul>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 p-5 rounded-lg shadow border-l-4 border-red-400">
+                     <h4 className="text-sm font-bold text-gray-500 uppercase mb-3 flex items-center gap-2">
+                        <CalendarDaysIcon className="h-4 w-4" /> Xu hướng nghỉ
+                    </h4>
+                    <div className="mt-2">
+                        <p className="text-sm text-gray-600 dark:text-gray-300">Nhân viên thường vắng mặt nhiều nhất vào:</p>
+                        <p className="text-2xl font-bold text-red-600 mt-1">{stats.maxAbsenceDay}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Calendar Grid */}
             <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                 <div className="flex justify-between items-center mb-6">
                     <div className="flex items-center gap-4">
@@ -539,22 +693,55 @@ const AttendanceTimesheet: React.FC<{ employees: Employee[], records: Attendance
                         <h3 className="text-xl font-bold dark:text-white capitalize">{selectedDate.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })}</h3>
                         <button onClick={() => setSelectedDate(new Date(selectedDate.setMonth(month+1)))} className="p-2 font-bold text-gray-400 hover:text-primary-600">&gt;</button>
                     </div>
+                    <div className="flex gap-4 text-xs font-medium">
+                        <div className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Đúng giờ</div>
+                        <div className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> Đi trễ</div>
+                        <div className="flex items-center gap-1"><span className="w-3 h-3 bg-gray-100 rounded border"></span> Vắng/Không dữ liệu</div>
+                    </div>
                 </div>
-                <div className="overflow-x-auto border dark:border-gray-700 rounded-lg max-h-[500px]">
-                    <table className="min-w-full text-sm">
+                <div className="overflow-x-auto border dark:border-gray-700 rounded-lg max-h-[600px]">
+                    <table className="min-w-full text-sm border-collapse">
                         <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0 z-10 shadow-sm">
                             <tr>
-                                <th className="px-4 py-3 text-left sticky left-0 bg-gray-50 dark:bg-gray-700 z-20">Nhân viên</th>
-                                {daysArray.map(day => <th key={day} className="px-1 py-3 text-center min-w-[32px]">{day}</th>)}
+                                <th className="px-4 py-3 text-left sticky left-0 bg-gray-50 dark:bg-gray-700 z-20 border-b dark:border-gray-600">Nhân viên</th>
+                                {daysArray.map(day => {
+                                    const date = new Date(year, month, day);
+                                    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                                    return (
+                                        <th key={day} className={`px-1 py-3 text-center min-w-[36px] border-b dark:border-gray-600 ${isWeekend ? 'text-red-500 bg-red-50/50 dark:bg-red-900/10' : ''}`}>
+                                            <div className="flex flex-col">
+                                                <span>{day}</span>
+                                                <span className="text-[9px] opacity-70">{['CN','T2','T3','T4','T5','T6','T7'][date.getDay()]}</span>
+                                            </div>
+                                        </th>
+                                    )
+                                })}
                             </tr>
                         </thead>
                         <tbody className="divide-y dark:divide-gray-700">
                             {employees.map(emp => (
                                 <tr key={emp.id} className={`hover:bg-primary-50 cursor-pointer ${selectedEmployeeId === emp.id ? 'bg-primary-100/50' : ''}`} onClick={() => setSelectedEmployeeId(emp.id)}>
-                                    <td className="px-4 py-3 sticky left-0 bg-white dark:bg-gray-800 font-bold shadow-sm">{emp.name}</td>
+                                    <td className="px-4 py-2 sticky left-0 bg-white dark:bg-gray-800 font-bold shadow-sm border-r dark:border-gray-700 z-10 text-xs md:text-sm whitespace-nowrap">
+                                        {emp.name}
+                                    </td>
                                     {daysArray.map(day => {
-                                        const cin = attendanceMap[emp.id]?.[day]?.cin;
-                                        return <td key={day} className="p-1 text-center">{cin ? <span className="w-2.5 h-2.5 rounded-full bg-green-500 block mx-auto"></span> : <span className="w-1 h-1 bg-gray-100 rounded-full block mx-auto"></span>}</td>
+                                        const colorClass = getStatusColor(emp, day);
+                                        const title = getCellTitle(emp, day);
+                                        const cellData = attendanceMap[emp.id]?.[day];
+                                        const cinTime = cellData?.cin ? formatTimeToHHMM(cellData.cin) : '';
+                                        const coutTime = cellData?.cout ? formatTimeToHHMM(cellData.cout) : '';
+
+                                        return (
+                                            <td key={day} className="p-0.5 text-center h-10 border-r dark:border-gray-700 border-dashed last:border-0">
+                                                <div 
+                                                    className={`w-full h-full min-h-[40px] rounded-sm flex flex-col items-center justify-center text-[10px] cursor-help transition-colors ${colorClass}`} 
+                                                    title={title}
+                                                >
+                                                    {cinTime && <span className="font-bold leading-tight">{cinTime}</span>}
+                                                    {coutTime && <span className="text-gray-600 dark:text-gray-300 leading-tight">{coutTime}</span>}
+                                                </div>
+                                            </td>
+                                        )
                                     })}
                                 </tr>
                             ))}
