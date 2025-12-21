@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { Employee, AttendanceRecord, Location } from '../types';
 import { AttendanceStatus } from '../types';
 import { addAttendanceRecord, getLastRecordForEmployee, getLocationById, addAttendanceRequest } from '../services/attendanceService';
-import { matchFace, detectFace, resizeResults, drawFaceBox, checkLivenessAction, LivenessAction } from '../services/faceService';
+import { matchFace, detectFace, resizeResults, drawFaceBox } from '../services/faceService';
 import QRScanner from './QRScanner';
 import { CheckCircleIcon, XCircleIcon, QrCodeIcon, LoadingIcon, CameraIcon, ExclamationTriangleIcon } from './icons';
 import { formatTimestamp } from '../utils/date';
@@ -25,8 +25,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   const [scannedLocation, setScannedLocation] = useState<Location | null>(null);
   const [selfieData, setSelfieData] = useState<string | null>(null);
 
-  // Liveness State
-  const [livenessChallenge, setLivenessChallenge] = useState<{action: LivenessAction, label: string} | null>(null);
+  // Feedback State
   const [feedbackText, setFeedbackText] = useState("Đang tìm khuôn mặt...");
 
   // Reporting State
@@ -41,9 +40,9 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   const isProcessingRef = useRef(false); 
   
   // --- STABILITY COUNTER ---
-  // Giảm xuống 2 để nhanh nhạy hơn
+  // Cần nhận diện đúng liên tiếp vài frame để đảm bảo không bị nhầm
   const consecutiveMatchesRef = useRef(0);
-  const REQUIRED_STABLE_FRAMES = 2;
+  const REQUIRED_STABLE_FRAMES = 3;
 
 
   useEffect(() => {
@@ -74,7 +73,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
             if (scanState === 'verifyingFace' && !selfieData) {
                 videoRef.current?.play().catch(e => console.error("Play error", e));
                 startRealTimeDetection();
-                setTimeout(() => setShowManualCapture(true), 12000); // Hiện nút chụp thủ công sớm hơn chút
+                setTimeout(() => setShowManualCapture(true), 8000); // Hiện nút chụp thủ công sau 8s nếu chưa xong
             }
         };
       }
@@ -110,35 +109,22 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
   }, [scanState, selfieData]);
 
 
-  // --- REAL-TIME DETECTION LOOP (With Simplified Liveness) ---
-
-  const generateChallenge = () => {
-      // BỎ QUAY TRÁI/PHẢI để dễ dàng hơn cho nhân viên
-      const actions: {action: LivenessAction, label: string}[] = [
-          { action: 'smile', label: 'HÃY CƯỜI LÊN! 😁' },
-          // Có thể thêm 'blink' nếu thư viện hỗ trợ tốt, hiện tại chỉ giữ Smile để đơn giản
-      ];
-      const random = actions[Math.floor(Math.random() * actions.length)];
-      setLivenessChallenge(random);
-      setFeedbackText(random.label);
-      consecutiveMatchesRef.current = 0; 
-  };
+  // --- REAL-TIME DETECTION LOOP (Simplified: Match Only) ---
 
   const startRealTimeDetection = () => {
       if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current);
       consecutiveMatchesRef.current = 0;
 
-      if (employee.faceDescriptor) {
-          generateChallenge();
-      } else {
-          setFeedbackText("Giữ yên khuôn mặt...");
+      if (!employee.faceDescriptor) {
+          setFeedbackText("Lỗi: Chưa đăng ký khuôn mặt");
+          return;
       }
+      
+      setFeedbackText("Giữ yên khuôn mặt...");
 
       detectionIntervalRef.current = setInterval(async () => {
           if (!videoRef.current || !canvasRef.current || isProcessingRef.current || !scannedLocation) return;
           
-          if (!employee.faceDescriptor) return;
-
           try {
               if (videoRef.current.readyState !== 4) return;
 
@@ -156,31 +142,13 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
 
               if (detection) {
                   const resizedDetections = resizeResults(detection, displaySize);
-                  const matchResult = await matchFace(detection.descriptor, employee.faceDescriptor);
+                  const matchResult = await matchFace(detection.descriptor, employee.faceDescriptor!);
                   
-                  let isLivenessPassed = false;
-
-                  if (matchResult.isMatch) {
-                      if (livenessChallenge) {
-                          isLivenessPassed = checkLivenessAction(detection, livenessChallenge.action);
-                          if (isLivenessPassed) {
-                              setFeedbackText("Tuyệt vời! Giữ nguyên...");
-                          } else {
-                              setFeedbackText(livenessChallenge.label);
-                          }
-                      } else {
-                          isLivenessPassed = true; // No challenge, just match
-                          setFeedbackText("Đang xác thực...");
-                      }
-                  } else {
-                      setFeedbackText("Không đúng người!");
-                      consecutiveMatchesRef.current = 0; 
-                  }
-
-                  // Chỉ vẽ khung, không vẽ chữ trong canvas nữa để tránh bị ngược
+                  // Chỉ vẽ khung, không vẽ chữ trong canvas
                   drawFaceBox(canvas, resizedDetections, matchResult.isMatch);
 
-                  if (matchResult.isMatch && isLivenessPassed) {
+                  if (matchResult.isMatch) {
+                      setFeedbackText("Tuyệt vời! Giữ nguyên...");
                       consecutiveMatchesRef.current += 1;
                       
                       if (consecutiveMatchesRef.current >= REQUIRED_STABLE_FRAMES) {
@@ -197,7 +165,8 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
                           }, 500);
                       }
                   } else {
-                      if (!matchResult.isMatch) consecutiveMatchesRef.current = 0;
+                      setFeedbackText("Không đúng người!");
+                      consecutiveMatchesRef.current = 0;
                   }
               } else {
                   // Không thấy mặt
@@ -241,7 +210,6 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
       setReportReason('');
       setProcessingMessage('');
       setShowManualCapture(false);
-      setLivenessChallenge(null);
     }, 5000); 
   };
   
@@ -325,7 +293,6 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
     setScannedLocation(null);
     setReportReason('');
     setShowManualCapture(false);
-    setLivenessChallenge(null);
     stopCamera();
     isProcessingRef.current = false;
   }
@@ -470,7 +437,7 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
                  {/* HTML OVERLAY FOR TEXT (Prevents mirroring) */}
                  {hasFaceId && (
                      <div className="absolute top-6 left-0 right-0 z-30 flex justify-center pointer-events-none">
-                        <div className={`px-4 py-2 rounded-full text-white font-bold text-lg shadow-lg backdrop-blur-sm transition-all duration-300 ${feedbackText.includes("Không") ? 'bg-red-500/80' : feedbackText.includes("Tuyệt") ? 'bg-green-500/80' : 'bg-primary-600/80'}`}>
+                        <div className={`px-4 py-2 rounded-full text-white font-bold text-lg shadow-lg backdrop-blur-sm transition-all duration-300 ${feedbackText.includes("Không") || feedbackText.includes("Lỗi") ? 'bg-red-500/80' : feedbackText.includes("Tuyệt") ? 'bg-green-500/80' : 'bg-primary-600/80'}`}>
                             {feedbackText}
                         </div>
                      </div>

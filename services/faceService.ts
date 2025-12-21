@@ -15,7 +15,7 @@ export const loadFaceModels = async () => {
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-      faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
+      // faceExpressionNet Removed: Không cần nhận diện cảm xúc nữa
     ]);
     isModelLoaded = true;
     console.log("Face API Models Loaded");
@@ -34,9 +34,9 @@ export const detectFace = async (imageElement: HTMLImageElement | HTMLVideoEleme
     // scoreThreshold 0.6: Chỉ nhận diện khi AI rất chắc chắn đó là khuôn mặt.
     const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.6 });
     
+    // Loại bỏ withFaceExpressions() để tăng tốc
     const detection = await faceapi.detectSingleFace(imageElement, options)
         .withFaceLandmarks()
-        .withFaceExpressions()
         .withFaceDescriptor();
         
     return detection;
@@ -95,8 +95,6 @@ export const matchFace = async (liveDescriptor: Float32Array, storedDescriptorSt
         // 0.4: Khắt khe (Khuyên dùng để chống gian lận)
         const threshold = 0.4;
 
-        // console.log(`Distance: ${distance.toFixed(4)} | Threshold: ${threshold} | Match: ${distance < threshold}`);
-
         return {
             isMatch: distance < threshold,
             distance: distance
@@ -106,38 +104,3 @@ export const matchFace = async (liveDescriptor: Float32Array, storedDescriptorSt
         return { isMatch: false, distance: 1 };
     }
 }
-
-// --- LIVENESS CHECK LOGIC ---
-
-export type LivenessAction = 'smile' | 'turnLeft' | 'turnRight';
-
-export const checkLivenessAction = (detection: any, action: LivenessAction): boolean => {
-    if (!detection) return false;
-
-    if (action === 'smile') {
-        // Giảm ngưỡng xuống 0.6 để dễ cười hơn
-        return detection.expressions.happy > 0.6;
-    }
-
-    const landmarks = detection.landmarks;
-    const nose = landmarks.getNose()[3]; // Đỉnh mũi
-    const jaw = landmarks.getJawOutline();
-    const leftJaw = jaw[0];
-    const rightJaw = jaw[16];
-
-    // Tính khoảng cách từ mũi đến 2 bên hàm
-    const distToLeft = Math.abs(nose.x - leftJaw.x);
-    const distToRight = Math.abs(nose.x - rightJaw.x);
-    const ratio = distToLeft / distToRight;
-
-    // Ngưỡng quay đầu (Vẫn giữ logic nhưng không gọi tới trong UI nữa)
-    if (action === 'turnLeft') {
-        return ratio < 0.55; 
-    }
-
-    if (action === 'turnRight') {
-        return ratio > 1.8;
-    }
-
-    return false;
-};
