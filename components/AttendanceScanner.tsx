@@ -264,6 +264,12 @@ const AttendanceScanner: React.FC<AttendanceScannerProps> = ({ employee, onScanC
         const location = await getLocationById(locationId);
         if (!location) throw new Error("Mã QR không hợp lệ.");
         
+        // --- LOGIC MỚI: KIỂM TRA ĐỊA ĐIỂM ĐƯỢC PHÂN CÔNG ---
+        if (employee.locationId && employee.locationId !== location.id) {
+            throw new Error(`Sai địa điểm! Bạn chỉ được phép chấm công tại địa điểm được phân công.`);
+        }
+        // ----------------------------------------------------
+
         setScannedLocation(location);
 
         if (employee.faceDescriptor) {
